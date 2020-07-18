@@ -1,0 +1,106 @@
+# ----------------------------------------------------------------------
+# |
+# |  HttpCodeGenerator.SimpleSchema
+# |
+# |  David Brownell <db@DavidBrownell.com>
+# |      2020-07-16 18:22:05
+# |
+# ----------------------------------------------------------------------
+# |
+# |  Copyright David Brownell 2020
+# |  Distributed under the Boost Software License, Version 1.0. See
+# |  accompanying file LICENSE_1_0.txt or copy at
+# |  http://www.boost.org/LICENSE_1_0.txt.
+# |
+# ----------------------------------------------------------------------
+
+# Schema that defines Http endpoints, the methods supported by those endpoints,
+# and the request and response content for those endpoints.
+
+# Opaque value set by some plugins that can be used by other chained plugins to disambiguate scenarios that
+# would otherwise by difficult to process.
+(context string ?)
+
+# Type with a corresponding SimpleSchema definitions.
+#
+#   Example (in JSON):
+#
+#       {
+#           "name" : "age",
+#           "simple_schema" : "<age integer min=0 max=999>",
+#           "description" : "The age of a person, measured in years"
+#       }
+#
+(type_description string fundamental_name=simple_schema):
+    [description string ?]
+
+(type_descriptions type_description key=name *):
+    [name string]
+
+#
+# Endpoint available via a http request.
+#
+# Examples:
+#   /Parent/{ParentId}/                                 ( 'ParentId' must be defined in 'variables' )
+#   /Parent/{ParentId}/                                 ( 'ParentId' must be defined in 'variables' )
+#   /Parent/{ParentId}/                                 ( 'ParentId' must be defined in 'variables' )
+#   /A/Longer/Prefix/{Foo}/With/Multiple/{Bar}/Values   ( 'Foo' and 'Bar' must be defined in 'variables' )
+#
+<endpoints key=uri +>:
+    [uri_value string name=uri]
+
+    # Variables within the endpoint.
+    #
+    #   Example (in JSON):
+    #
+    #   {
+    #       "uri" : "/Person/{age}",
+    #       "variables" [
+    #           {
+    #               "name" : "age",
+    #               "simple_schema" : "<age integer min=0 max=999>",
+    #               "description" : "The age of the person, measured in years"
+    #           }
+    #       ]
+    #   }
+    <variables type_descriptions>
+
+    [description string ?]
+
+    # Group to which this endpoint belongs. It is up to the specific plugin to determine how this value is used.
+    [group string ?]
+
+    [context context]
+
+    <methods key=verb *>:
+        [verb enum values=[ "POST", "GET", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD", "TRACE", "CONNECT" ]]
+
+        [summary string max_length=120 ?]
+        [description string ?]
+
+        [context context]
+
+        <request_and_response key=content_type +>:
+            [content_type string]
+
+            [context context]
+
+            <request>:
+                <headers type_descriptions>
+                <query_items type_descriptions>
+                <form_items type_descriptions>
+
+                <body type_description ?>
+
+            # By convention, the first response in this list is considered to be the successful response
+            <responses key=code +>:
+                [code int min=0 max=99999]
+                [description string ?]
+
+                [context context]
+
+                <headers type_descriptions>
+
+                <body type_description ?>
+
+    <children endpoints refines_arity=true *>

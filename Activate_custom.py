@@ -19,7 +19,7 @@ import sys
 
 sys.path.insert(0, os.getenv("DEVELOPMENT_ENVIRONMENT_FUNDAMENTAL"))
 from RepositoryBootstrap.SetupAndActivate import CommonEnvironment, CurrentShell
-
+from RepositoryBootstrap.SetupAndActivate import DynamicPluginArchitecture
 del sys.path[0]
 
 # ----------------------------------------------------------------------
@@ -53,6 +53,13 @@ def GetCustomActions(
     """
 
     actions = []
+
+    if configuration == "SimpleSchema":
+        actions += DynamicPluginArchitecture.CreateRegistrationStatements(
+            "DEVELOPMENT_ENVIRONMENT_SIMPLE_SCHEMA_PLUGINS",
+            os.path.join(_script_dir, "Scripts", "SimpleSchemaGenerator"),
+            lambda fullpath, name, ext: ext == ".py" and name.endswith("Plugin"),
+        )
 
     return actions
 

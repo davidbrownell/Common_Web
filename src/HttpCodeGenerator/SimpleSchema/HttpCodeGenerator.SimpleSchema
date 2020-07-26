@@ -27,7 +27,7 @@
 #
 #       {
 #           "name" : "age",
-#           "simple_schema" : "<age integer min=0 max=999>",
+#           "simple_schema" : "<integer min=0 max=999>",
 #           "description" : "The age of a person, measured in years"
 #       }
 #
@@ -36,6 +36,9 @@
 
 (type_descriptions type_description key=name *):
     [name string]
+
+# SimpleSchema content common to all endpoints
+<simple_schema_content string ?>
 
 #
 # Endpoint available via a http request.
@@ -71,6 +74,7 @@
     [group string ?]
 
     [context context]
+    [simple_schema_content simple_schema_content]
 
     <methods key=verb *>:
         [verb enum values=[ "POST", "GET", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD", "TRACE", "CONNECT" ]]
@@ -79,13 +83,15 @@
         [description string ?]
 
         [context context]
+        [simple_schema_content simple_schema_content]
 
-        <request_and_response key=content_type +>:
+        <request_and_responses key=content_type +>:
             [content_type string]
 
             [context context]
+            [simple_schema_content simple_schema_content]
 
-            <request>:
+            <request ?>:
                 <headers type_descriptions>
                 <query_items type_descriptions>
                 <form_items type_descriptions>

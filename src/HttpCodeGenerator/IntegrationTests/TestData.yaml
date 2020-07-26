@@ -1,0 +1,64 @@
+simple_schema_content: |-
+    <global1 string>
+    <global2 bool>
+
+endpoints:
+  - uri: "/Object/{id}"
+
+    variables:
+      - name: id
+        simple_schema: "<int min=0>"
+
+    simple_schema_content: |-
+      <endpoint1 string>
+      <endpoint2 string>
+
+    methods:
+      - verb: GET
+
+        simple_schema_content: |-
+          <method1 string>
+
+        request_and_responses:
+          - content_type: "application/vnd.api+json"
+
+            request:
+              body:
+                simple_schema: |-
+                  <data>:
+                    <foo string>
+                    <bar string>
+                description: This is the description
+
+            responses:
+              - code: 200
+                description: More desc
+                headers:
+                  - name: one
+                    simple_schema: "<guid>"
+                body:
+                  simple_schema: |-
+                    <data>:
+                      <foo1 string>
+                      <bar1 string>
+
+              - code: 404
+              - code: 400
+                description: Error 400
+
+    children:
+      - uri: "/Child1/{child1_id}"
+
+        variables:
+          - name: child1_id
+            simple_schema: "<string>"
+
+        methods:
+          - verb: GET
+            request_and_responses:
+              - content_type: "application/vnd.api+json"
+
+                responses:
+                  - code: 200
+                  - code: 404
+                  - code: 400

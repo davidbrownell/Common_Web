@@ -117,6 +117,12 @@ def GetDependencies():
                 None,
                 "https://github.com/davidbrownell/Common_SimpleSchemaGenerator.git",
             ),
+            Dependency(
+                "3C72E8CD41EB483A891F01DDA606B780",
+                "Common_EnvironmentEx",
+                "python36",
+                "https://github.com/davidbrownell/Common_EnvironmentEx.git",
+            ),
         ],
     )
 

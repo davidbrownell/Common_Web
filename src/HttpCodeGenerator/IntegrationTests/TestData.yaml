@@ -1,0 +1,78 @@
+simple_schema_content: |-
+    <global1 string>
+    <global2 bool>
+
+endpoints:
+  - uri: "/Object/{id}"
+
+    variables:
+      - name: id
+        simple_schema: "<id int min=0>"
+
+    simple_schema_content: |-
+      <endpoint1 string>
+      <endpoint2 string>
+
+    methods:
+      - verb: GET
+
+        simple_schema_content: |-
+          <method1 string>
+
+        requests:
+          - content_type: "application/vnd.api+json"
+
+            body:
+              simple_schema: |-
+                <data ?>:
+                  <foo string>
+                  <bar string>
+              description: This is the description of the body
+
+          - content_type: "Not sure what this content type is"
+            headers:
+              - name: first
+                simple_schema: "<first string>"
+                description: "This is the first header"
+              - name: second
+                simple_schema: "<second int ?>"
+            body:
+              simple_schema: |-
+                <data>:
+                  <a int>
+
+        responses:
+          - code: 200
+            description: More desc
+
+            contents:
+              - content_type: "application/vnd.api+json"
+                body:
+                  simple_schema: |-
+                    <data>:
+                      <foo1 string>
+                      <bar1 string>
+                      <method1 method1>
+
+              - content_type: "Not sure what this content type is"
+                headers:
+                  - name: one
+                    simple_schema: "<one guid>"
+
+          - code: 404
+          - code: 400
+            description: Error 400
+
+    children:
+      - uri: "/Child1/{child1_id}"
+
+        variables:
+          - name: child1_id
+            simple_schema: "<child1_id string>"
+
+        methods:
+          - verb: GET
+            responses:
+              - code: 200
+              - code: 404
+              - code: 400

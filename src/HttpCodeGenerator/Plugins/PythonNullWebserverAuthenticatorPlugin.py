@@ -1,9 +1,9 @@
 # ----------------------------------------------------------------------
 # |
-# |  NullWebserverImplementationPlugin.py
+# |  PythonNullWebserverAuthenticatorPlugin.py
 # |
 # |  David Brownell <db@DavidBrownell.com>
-# |      2020-08-28 22:24:33
+# |      2020-08-28 21:59:33
 # |
 # ----------------------------------------------------------------------
 # |
@@ -40,8 +40,8 @@ class Plugin(PluginBase):
 
     # ----------------------------------------------------------------------
     # |  Public Properties
-    Name                                    = Interface.DerivedProperty("NullWebserverImplementation")
-    Description                             = Interface.DerivedProperty("Noop Implementation used by generated Webservers")
+    Name                                    = Interface.DerivedProperty("PythonNullWebserverAuthenticator")
+    Description                             = Interface.DerivedProperty("Noop Authenticator used by generated Webservers")
 
     # ----------------------------------------------------------------------
     # |  Public Methods
@@ -60,12 +60,12 @@ class Plugin(PluginBase):
     @classmethod
     @Interface.override
     def GenerateOutputFilenames(cls, context):
-        filenames = ["__init__.py", "NullImplementation.py"]
+        filenames = ["__init__.py", "NullAuthenticator.py"]
 
         if not context["plugin_settings"]["no_helpers"]:
             filenames += [
                 os.path.join("Helpers", "__init__.py"),
-                os.path.join("Helpers", "Implementation.py"),
+                os.path.join("Helpers", "Authenticator.py"),
             ]
 
         cls._filenames = filenames
@@ -121,14 +121,14 @@ class Plugin(PluginBase):
 
             filenames.pop(0)
 
-        # NullImplementation.py
+        # NullAuthenticator.py
         assert filenames
 
         status_stream.write("Writing '{}'...".format(filenames[0]))
         with status_stream.DoneManager():
             with open(filenames[0], "w") as f:
                 f.write(file_header)
-                WriteNullImplementation(f, endpoints)
+                WriteNullAuthenticator(f, endpoints)
 
             filenames.pop(0)
 
@@ -143,20 +143,20 @@ class Plugin(PluginBase):
 
                 filenames.pop(0)
 
-            # Implementation
+            # Authenticator
             assert filenames
 
             status_stream.write("Writing '{}'...".format(filenames[0]))
             with status_stream.DoneManager():
                 with open(filenames[0], "w") as f:
                     f.write(file_header)
-                    WriteImplementation(f)
+                    WriteAuthenticator(f)
 
 
 # ----------------------------------------------------------------------
 # ----------------------------------------------------------------------
 # ----------------------------------------------------------------------
-def WriteNullImplementation(f, endpoints):
+def WriteNullAuthenticator(f, endpoints):
     content = []
 
     # ----------------------------------------------------------------------
@@ -168,8 +168,8 @@ def WriteNullImplementation(f, endpoints):
                     # ----------------------------------------------------------------------
                     @staticmethod
                     @Interface.override
-                    def {}_{}(debug, session, context):
-                        return context
+                    def {}_{}(debug, user, context):
+                        pass
 
                     """,
                 ).format(endpoint.unique_name, method.verb),
@@ -188,33 +188,24 @@ def WriteNullImplementation(f, endpoints):
             """\
             import sys
 
-            from contextlib import contextmanager
-
             import six
 
             from CommonEnvironment import Interface
 
-            # Get the ImplementationInterface
+            # Get the AuthenticatorInterface
             for name, module in six.iteritems(sys.modules):
-                if name.split(".")[-1] == "Interfaces" and hasattr(module, "ImplementationInterface"):
-                    ImplementationInterface = module.ImplementationInterface
+                if name.split(".")[-1] == "Interfaces" and hasattr(module, "AuthenticatorInterface"):
+                    AuthenticatorInterface = module.AuthenticatorInterface
                     break
 
             # ----------------------------------------------------------------------
             @Interface.staticderived
-            class NullImplementation(ImplementationInterface):
+            class NullAuthenticator(AuthenticatorInterface):
                 # ----------------------------------------------------------------------
                 @staticmethod
                 @Interface.override
-                @contextmanager
-                def CreateScopedSession():
-                    yield None
-
-                # ----------------------------------------------------------------------
-                @staticmethod
-                @Interface.override
-                def GetIds(obj):
-                    return []
+                def Authenticate(obj):
+                    pass
 
                 {}
             """,
@@ -223,16 +214,16 @@ def WriteNullImplementation(f, endpoints):
 
 
 # ----------------------------------------------------------------------
-def WriteImplementation(f):
+def WriteAuthenticator(f):
     f.write(
         textwrap.dedent(
             """\
             from CommonEnvironmentEx.Package import InitRelativeImports
 
             with InitRelativeImports():
-                from ..NullImplementation import NullImplementation
+                from ..NullAuthenticator import NullAuthenticator
 
-            implementation = NullImplementation()
+            authenticator = NullAuthenticator()
             """,
         ),
     )

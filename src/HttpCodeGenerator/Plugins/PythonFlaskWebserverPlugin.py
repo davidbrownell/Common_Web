@@ -1,6 +1,6 @@
 # ----------------------------------------------------------------------
 # |
-# |  FlaskPlugin.py
+# |  PythonFlaskWebserverPlugin.py
 # |
 # |  David Brownell <db@DavidBrownell.com>
 # |      2020-08-28 19:19:07
@@ -43,8 +43,8 @@ class Plugin(WebserverPluginMixin, PluginBase):
 
     # ----------------------------------------------------------------------
     # |  Public Properties
-    Name                                    = Interface.DerivedProperty("FlaskWebserver")
-    Description                             = Interface.DerivedProperty("Creates a Flask app (http://flask.pocoo.org/)")
+    Name                                    = Interface.DerivedProperty("PythonFlaskWebserver")
+    Description                             = Interface.DerivedProperty("Creates a Flask app (https://github.com/pallets/flask)")
 
     # ----------------------------------------------------------------------
     # |  Public Methods
@@ -295,7 +295,7 @@ def WriteFlaskMethods(f, endpoints, support_default_content_processor):
             import six
 
             from collections import OrderedDict
-            from urlparse import urlparse as uriparse
+            from urllib.parse import urlparse as uriparse
 
             from flask import abort, request, Response
             from flask.views import MethodView
@@ -473,8 +473,8 @@ def WriteFlaskMethods(f, endpoints, support_default_content_processor):
             # ----------------------------------------------------------------------
 
             # Note that a value of '*' supports any/all domains
-            _Execute_cors_domain                        = app.config.get("_FLASK_CORS_DOMAIN", None)
-            _default_content_processor_key              = {default_content_processor_assignment_value}
+            _Execute_cors_domain                                = app.config.get("_FLASK_CORS_DOMAIN", None)
+            _default_content_processor_key                      = {default_content_processor_assignment_value}
 
 
             # ----------------------------------------------------------------------
@@ -498,8 +498,6 @@ def WriteFlaskMethods(f, endpoints, support_default_content_processor):
 
             # ----------------------------------------------------------------------
             def _Execute(method_name, *args):
-                debug = app.debug
-
                 try:
                     content_processor_type = _GetContentProcessorType()
 
@@ -507,7 +505,7 @@ def WriteFlaskMethods(f, endpoints, support_default_content_processor):
 
                     # Extract the content from the request values
                     context = getattr(content_processor, "{{}}_Request".format(method_name))(
-                        debug,
+                        app.debug,
                         args,
                         request.headers,
                         request.form,
@@ -519,12 +517,12 @@ def WriteFlaskMethods(f, endpoints, support_default_content_processor):
                         # TODO # Authenticate
                         # TODO user = None # TODO
                         # TODO
-                        # TODO getattr(authenticator, method_name)(debug, user, context)
+                        # TODO getattr(authenticator, method_name)(app.debug, user, context)
 
                         # Calculate the result
                         result = getattr(implementation, method_name)(
                             authenticator.Authenticate,
-                            debug,
+                            app.debug,
                             session,
                             context,
                         )
@@ -541,7 +539,7 @@ def WriteFlaskMethods(f, endpoints, support_default_content_processor):
                         # Convert the result into http components
                         status_code, headers, body = getattr(content_processor, "{{}}_Response".format(method_name))(
                             implementation.GetIds,
-                            debug,
+                            app.debug,
                             uri,
                             result,
                         )
@@ -580,7 +578,7 @@ def WriteFlaskMethods(f, endpoints, support_default_content_processor):
                     abort(ex.Code)
 
                 except Exception as ex:
-                    if debug:
+                    if app.debug:
                         trace = traceback.format_exc()
 
                         sys.stdout.write(trace)

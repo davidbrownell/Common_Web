@@ -1,9 +1,9 @@
 # ----------------------------------------------------------------------
 # |
-# |  NullWebserverContentProcessorPlugin.py
+# |  PythonNullWebserverImplementationPlugin.py
 # |
 # |  David Brownell <db@DavidBrownell.com>
-# |      2020-08-28 22:15:38
+# |      2020-08-28 22:24:33
 # |
 # ----------------------------------------------------------------------
 # |
@@ -40,8 +40,8 @@ class Plugin(PluginBase):
 
     # ----------------------------------------------------------------------
     # |  Public Properties
-    Name                                    = Interface.DerivedProperty("NullWebserverContentProcessor")
-    Description                             = Interface.DerivedProperty("Noop ContentProcessor used by generated Webservers")
+    Name                                    = Interface.DerivedProperty("PythonNullWebserverImplementation")
+    Description                             = Interface.DerivedProperty("Noop Implementation used by generated Webservers")
 
     # ----------------------------------------------------------------------
     # |  Public Methods
@@ -60,12 +60,12 @@ class Plugin(PluginBase):
     @classmethod
     @Interface.override
     def GenerateOutputFilenames(cls, context):
-        filenames = ["__init__.py", "NullContentProcessor.py"]
+        filenames = ["__init__.py", "NullImplementation.py"]
 
         if not context["plugin_settings"]["no_helpers"]:
             filenames += [
                 os.path.join("Helpers", "__init__.py"),
-                os.path.join("Helpers", "ContentProcessors.py"),
+                os.path.join("Helpers", "Implementation.py"),
             ]
 
         cls._filenames = filenames
@@ -121,14 +121,14 @@ class Plugin(PluginBase):
 
             filenames.pop(0)
 
-        # NullContentProcessor.py
+        # NullImplementation.py
         assert filenames
 
         status_stream.write("Writing '{}'...".format(filenames[0]))
         with status_stream.DoneManager():
             with open(filenames[0], "w") as f:
                 f.write(file_header)
-                WriteNullContentProcessor(f, endpoints)
+                WriteNullImplementation(f, endpoints)
 
             filenames.pop(0)
 
@@ -143,20 +143,20 @@ class Plugin(PluginBase):
 
                 filenames.pop(0)
 
-            # Authenticator
+            # Implementation
             assert filenames
 
             status_stream.write("Writing '{}'...".format(filenames[0]))
             with status_stream.DoneManager():
                 with open(filenames[0], "w") as f:
                     f.write(file_header)
-                    WriteContentProcessor(f)
+                    WriteImplementation(f)
 
 
 # ----------------------------------------------------------------------
 # ----------------------------------------------------------------------
 # ----------------------------------------------------------------------
-def WriteNullContentProcessor(f, endpoints):
+def WriteNullImplementation(f, endpoints):
     content = []
 
     # ----------------------------------------------------------------------
@@ -168,20 +168,11 @@ def WriteNullContentProcessor(f, endpoints):
                     # ----------------------------------------------------------------------
                     @staticmethod
                     @Interface.override
-                    def {unique_name}_{method_name}_Request(debug, uri_args, headers, form_data, query_data_body):
-                        return None
-
-                    # ----------------------------------------------------------------------
-                    @staticmethod
-                    @Interface.override
-                    def {unique_name}_{method_name}_Response(get_ids_func, debug, uri, result):
-                        return 200, [], "{unique_name}_{method_name}: {{}}".format(result)
+                    def {}_{}(debug, session, context):
+                        return context
 
                     """,
-                ).format(
-                    unique_name=endpoint.unique_name,
-                    method_name=method.verb,
-                ),
+                ).format(endpoint.unique_name, method.verb),
             )
 
         for child in endpoint.children:
@@ -197,19 +188,34 @@ def WriteNullContentProcessor(f, endpoints):
             """\
             import sys
 
+            from contextlib import contextmanager
+
             import six
 
             from CommonEnvironment import Interface
 
-            # Get the ContentProcessorInterface
+            # Get the ImplementationInterface
             for name, module in six.iteritems(sys.modules):
-                if name.split(".")[-1] == "Interfaces" and hasattr(module, "ContentProcessorInterface"):
-                    ContentProcessorInterface = module.ContentProcessorInterface
+                if name.split(".")[-1] == "Interfaces" and hasattr(module, "ImplementationInterface"):
+                    ImplementationInterface = module.ImplementationInterface
                     break
 
             # ----------------------------------------------------------------------
             @Interface.staticderived
-            class NullContentProcessor(ContentProcessorInterface):
+            class NullImplementation(ImplementationInterface):
+                # ----------------------------------------------------------------------
+                @staticmethod
+                @Interface.override
+                @contextmanager
+                def CreateScopedSession():
+                    yield None
+
+                # ----------------------------------------------------------------------
+                @staticmethod
+                @Interface.override
+                def GetIds(obj):
+                    return []
+
                 {}
             """,
         ).format(StringHelpers.LeftJustify("".join(content).rstrip(), 4)),
@@ -217,18 +223,16 @@ def WriteNullContentProcessor(f, endpoints):
 
 
 # ----------------------------------------------------------------------
-def WriteContentProcessor(f):
+def WriteImplementation(f):
     f.write(
         textwrap.dedent(
             """\
             from CommonEnvironmentEx.Package import InitRelativeImports
 
             with InitRelativeImports():
-                from ..NullContentProcessor import NullContentProcessor
+                from ..NullImplementation import NullImplementation
 
-            content_processors = {
-                None : NullContentProcessor,
-            }
+            implementation = NullImplementation()
             """,
         ),
     )

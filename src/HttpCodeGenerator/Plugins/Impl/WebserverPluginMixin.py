@@ -107,7 +107,7 @@ class WebserverPluginMixin(object):
                             # ----------------------------------------------------------------------
                             @staticmethod
                             @Interface.abstractmethod
-                            def {}_{}(authenticator, debug, session, context):
+                            def {}_{}(authenticate_func, debug, session, context):
                                 raise Exception("Abstract method")
 
                             """,

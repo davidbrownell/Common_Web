@@ -1,9 +1,9 @@
 # ----------------------------------------------------------------------
 # |
-# |  NullWebserverAuthenticatorPlugin.py
+# |  PythonNullWebserverContentProcessorPlugin.py
 # |
 # |  David Brownell <db@DavidBrownell.com>
-# |      2020-08-28 21:59:33
+# |      2020-08-28 22:15:38
 # |
 # ----------------------------------------------------------------------
 # |
@@ -40,8 +40,8 @@ class Plugin(PluginBase):
 
     # ----------------------------------------------------------------------
     # |  Public Properties
-    Name                                    = Interface.DerivedProperty("NullWebserverAuthenticator")
-    Description                             = Interface.DerivedProperty("Noop Authenticator used by generated Webservers")
+    Name                                    = Interface.DerivedProperty("PythonNullWebserverContentProcessor")
+    Description                             = Interface.DerivedProperty("Noop ContentProcessor used by generated Webservers")
 
     # ----------------------------------------------------------------------
     # |  Public Methods
@@ -60,12 +60,12 @@ class Plugin(PluginBase):
     @classmethod
     @Interface.override
     def GenerateOutputFilenames(cls, context):
-        filenames = ["__init__.py", "NullAuthenticator.py"]
+        filenames = ["__init__.py", "NullContentProcessor.py"]
 
         if not context["plugin_settings"]["no_helpers"]:
             filenames += [
                 os.path.join("Helpers", "__init__.py"),
-                os.path.join("Helpers", "Authenticator.py"),
+                os.path.join("Helpers", "ContentProcessors.py"),
             ]
 
         cls._filenames = filenames
@@ -121,14 +121,14 @@ class Plugin(PluginBase):
 
             filenames.pop(0)
 
-        # NullAuthenticator.py
+        # NullContentProcessor.py
         assert filenames
 
         status_stream.write("Writing '{}'...".format(filenames[0]))
         with status_stream.DoneManager():
             with open(filenames[0], "w") as f:
                 f.write(file_header)
-                WriteNullAuthenticator(f, endpoints)
+                WriteNullContentProcessor(f, endpoints)
 
             filenames.pop(0)
 
@@ -150,13 +150,13 @@ class Plugin(PluginBase):
             with status_stream.DoneManager():
                 with open(filenames[0], "w") as f:
                     f.write(file_header)
-                    WriteAuthenticator(f)
+                    WriteContentProcessor(f)
 
 
 # ----------------------------------------------------------------------
 # ----------------------------------------------------------------------
 # ----------------------------------------------------------------------
-def WriteNullAuthenticator(f, endpoints):
+def WriteNullContentProcessor(f, endpoints):
     content = []
 
     # ----------------------------------------------------------------------
@@ -168,11 +168,20 @@ def WriteNullAuthenticator(f, endpoints):
                     # ----------------------------------------------------------------------
                     @staticmethod
                     @Interface.override
-                    def {}_{}(debug, user, context):
-                        pass
+                    def {unique_name}_{method_name}_Request(debug, uri_args, headers, form_data, query_data_body):
+                        return None
+
+                    # ----------------------------------------------------------------------
+                    @staticmethod
+                    @Interface.override
+                    def {unique_name}_{method_name}_Response(get_ids_func, debug, uri, result):
+                        return 200, [], "{unique_name}_{method_name}: {{}}".format(result)
 
                     """,
-                ).format(endpoint.unique_name, method.verb),
+                ).format(
+                    unique_name=endpoint.unique_name,
+                    method_name=method.verb,
+                ),
             )
 
         for child in endpoint.children:
@@ -192,21 +201,15 @@ def WriteNullAuthenticator(f, endpoints):
 
             from CommonEnvironment import Interface
 
-            # Get the AuthenticatorInterface
+            # Get the ContentProcessorInterface
             for name, module in six.iteritems(sys.modules):
-                if name.split(".")[-1] == "Interfaces" and hasattr(module, "AuthenticatorInterface"):
-                    AuthenticatorInterface = module.AuthenticatorInterface
+                if name.split(".")[-1] == "Interfaces" and hasattr(module, "ContentProcessorInterface"):
+                    ContentProcessorInterface = module.ContentProcessorInterface
                     break
 
             # ----------------------------------------------------------------------
             @Interface.staticderived
-            class NullAuthenticator(AuthenticatorInterface):
-                # ----------------------------------------------------------------------
-                @staticmethod
-                @Interface.override
-                def Authenticate(obj):
-                    pass
-
+            class NullContentProcessor(ContentProcessorInterface):
                 {}
             """,
         ).format(StringHelpers.LeftJustify("".join(content).rstrip(), 4)),
@@ -214,16 +217,18 @@ def WriteNullAuthenticator(f, endpoints):
 
 
 # ----------------------------------------------------------------------
-def WriteAuthenticator(f):
+def WriteContentProcessor(f):
     f.write(
         textwrap.dedent(
             """\
             from CommonEnvironmentEx.Package import InitRelativeImports
 
             with InitRelativeImports():
-                from ..NullAuthenticator import NullAuthenticator
+                from ..NullContentProcessor import NullContentProcessor
 
-            authenticator = NullAuthenticator()
+            content_processors = {
+                None : NullContentProcessor,
+            }
             """,
         ),
     )

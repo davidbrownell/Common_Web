@@ -148,9 +148,8 @@ class Plugin(PluginBase):
             suffix="\n",
         ) as dm:
             # Create the temp directory and (optionally) remove it on exit
-            delete_temp_dir = True
-
             if not temp_dir:
+                delete_temp_dir = True
                 temp_dir = CurrentShell.CreateTempDirectory()
             else:
                 delete_temp_dir = False

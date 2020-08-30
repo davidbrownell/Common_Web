@@ -125,7 +125,7 @@ CodeGenerator                               = GeneratorFactory.CodeGeneratorFact
     content_type_include=CommandLine.EntryPoint.Parameter("Http content type to include in generation"),
     content_type_exclude=CommandLine.EntryPoint.Parameter("Http content type to exclude from generation"),
     verb_include=CommandLine.EntryPoint.Parameter("Http verb to include in generation"),
-    method_exclude=CommandLine.EntryPoint.Parameter("Http verb to exclude from generation"),
+    verb_exclude=CommandLine.EntryPoint.Parameter("Http verb to exclude from generation"),
     output_data_filename_prefix=CommandLine.EntryPoint.Parameter(
         "Prefix used by the code generation implementation; provide this value to generated content from multiple plugins in the same output directory",
     ),
@@ -151,7 +151,7 @@ CodeGenerator                               = GeneratorFactory.CodeGeneratorFact
     verb_include=CommandLine.StringTypeInfo(
         arity="*",
     ),
-    method_exclude=CommandLine.StringTypeInfo(
+    verb_exclude=CommandLine.StringTypeInfo(
         arity="*",
     ),
     output_data_filename_prefix=CommandLine.StringTypeInfo(
@@ -170,7 +170,7 @@ def Generate(
     content_type_include=None,
     content_type_exclude=None,
     verb_include=None,
-    method_exclude=None,
+    verb_exclude=None,
     output_data_filename_prefix=None,
     plugin_arg=None,
     force=False,
@@ -190,7 +190,7 @@ def Generate(
         content_type_includes=content_type_include,
         content_type_excludes=content_type_exclude,
         verb_includes=verb_include,
-        verb_excludes=method_exclude,
+        verb_excludes=verb_exclude,
         plugin_settings=plugin_arg,
         output_data_filename_prefix=output_data_filename_prefix,
     )

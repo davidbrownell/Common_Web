@@ -64,7 +64,7 @@ def Build(
         input_file = os.path.join(_script_dir, "HttpCodeGenerator.SimpleSchema")
         assert os.path.isfile(input_file), input_file
 
-        command_line_template = '{script} Generate {{plugin}} "{{plugin}}" "{{output_dir}}" "/input={input_file}" /plugin_arg=no_serialization:True{force}{verbose}'.format(
+        command_line_template = '{script} Generate {{plugin}} "{{plugin}}" "{{output_dir}}" "/input={input_file}"{force}{verbose}'.format(
             script=CurrentShell.CreateScriptName("SimpleSchemaGenerator"),
             input_file=input_file,
             force="" if not force else " /force",

@@ -13,7 +13,7 @@
 # |  http://www.boost.org/LICENSE_1_0.txt.
 # |
 # ----------------------------------------------------------------------
-"""Builds the HttpCodeGenerator input parsers"""
+"""Builds the HttpGenerator input parsers"""
 
 import os
 import sys
@@ -61,7 +61,7 @@ def Build(
         prefix="\nResults: ",
         suffix="\n",
     ) as dm:
-        input_file = os.path.join(_script_dir, "HttpCodeGenerator.SimpleSchema")
+        input_file = os.path.join(_script_dir, "HttpGenerator.SimpleSchema")
         assert os.path.isfile(input_file), input_file
 
         command_line_template = '{script} Generate {{plugin}} "{{plugin}}" "{{output_dir}}" "/input={input_file}"{force}{verbose}'.format(
@@ -149,7 +149,7 @@ if __name__ == "__main__":
         sys.exit(
             BuildImpl.Main(
                 BuildImpl.Configuration(
-                    name="HttpCodeGenerator_SimpleSchema",
+                    name="HttpGenerator_SimpleSchema",
                     requires_output_dir=False,
                 ),
             ),

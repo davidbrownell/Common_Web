@@ -1,6 +1,6 @@
 # ----------------------------------------------------------------------
 # |
-# |  HttpCodeGenerator.py
+# |  HttpGenerator.py
 # |
 # |  David Brownell <db@DavidBrownell.com>
 # |      2020-07-16 17:02:19
@@ -105,7 +105,7 @@ def _Invoke(*args, **kwargs):
 
 CodeGenerator                               = GeneratorFactory.CodeGeneratorFactory(
     PLUGINS,
-    "HttpCodeGenerator",
+    "HttpGenerator",
     __doc__.replace("\n", ""),
     r".+({})".format(
         "|".join(itertools.chain(*INPUT_PARSERS.keys()))

@@ -38,7 +38,7 @@ _script_dir, _script_name                   = os.path.split(_script_fullpath)
 
 # ----------------------------------------------------------------------
 class Plugin(PluginBase):
-    """Abstract base class for HttpCodeGenerator plugins"""
+    """Abstract base class for HttpGenerator plugins"""
 
     # ----------------------------------------------------------------------
     # |

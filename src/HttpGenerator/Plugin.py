@@ -15,16 +15,18 @@
 # ----------------------------------------------------------------------
 """Contains the Plugin object"""
 
+import hashlib
 import os
 import re
+import shutil
 import textwrap
-import uuid
 
 import six
 
 import CommonEnvironment
 from CommonEnvironment import FileSystem
 from CommonEnvironment import Interface
+from CommonEnvironment.Shell.All import CurrentShell
 from CommonEnvironment import StringHelpers
 
 from CommonEnvironmentEx.CompilerImpl.GeneratorPluginFrameworkImpl.PluginBase import PluginBase
@@ -36,7 +38,7 @@ _script_dir, _script_name                   = os.path.split(_script_fullpath)
 
 # ----------------------------------------------------------------------
 class Plugin(PluginBase):
-    """Abstract base class for HttpCodeGenerator plugins"""
+    """Abstract base class for HttpGenerator plugins"""
 
     # ----------------------------------------------------------------------
     # |
@@ -73,11 +75,13 @@ class Plugin(PluginBase):
     def _WriteSimpleSchemaContent(roots, temp_dir):
         """Creates a .SimpleSchema file based on the simple_schema definitions provided"""
 
-        FileSystem.MakeDirs(temp_dir)
+        temp_filename = CurrentShell.CreateTempFilename()
 
-        simple_schema_filename = os.path.join(temp_dir, "http_schema.SimpleSchema")
+        # Write to a temp file, and only copy the content if it is different from the
+        # existing file (if any).
+        with open(temp_filename, "w") as f:
+            delimiter_index = 0
 
-        with open(simple_schema_filename, "w") as f:
             # ----------------------------------------------------------------------
             def ElementToString(element_name, simple_schema_content):
                 return textwrap.dedent(
@@ -93,7 +97,9 @@ class Plugin(PluginBase):
 
             # ----------------------------------------------------------------------
             def SimpleSchemaContentToString(element_type, simple_schema_content):
-                return textwrap.dedent(
+                nonlocal delimiter_index
+
+                result = textwrap.dedent(
                     """\
                     # {}-specific content
                     {}
@@ -103,8 +109,12 @@ class Plugin(PluginBase):
                 ).format(
                     element_type,
                     simple_schema_content,
-                    str(uuid.uuid4()).replace("-", ""),
+                    delimiter_index,
                 )
+
+                delimiter_index += 1
+
+                return result
 
             # ----------------------------------------------------------------------
             def GenerateEndpointContent(endpoint, endpoint_index):
@@ -198,5 +208,35 @@ class Plugin(PluginBase):
                         f.write(result)
 
                     endpoint_index += 1
+
+        # Determine if the file's contents have changed
+        simple_schema_filename = os.path.join(temp_dir, "http_schema.SimpleSchema")
+
+        should_copy = False
+
+        if not os.path.isfile(simple_schema_filename):
+            should_copy = True
+            FileSystem.MakeDirs(temp_dir)
+        else:
+            # ----------------------------------------------------------------------
+            def CalcHash(filename):
+                hash = hashlib.sha256()
+
+                with open(filename, "rb") as f:
+                    while True:
+                        content = f.read(4096)
+                        if not content:
+                            break
+
+                        hash.update(content)
+
+                return hash.hexdigest()
+
+            # ----------------------------------------------------------------------
+
+            should_copy = CalcHash(temp_filename) != CalcHash(simple_schema_filename)
+
+        if should_copy:
+            shutil.copyfile(temp_filename, simple_schema_filename)
 
         return simple_schema_filename

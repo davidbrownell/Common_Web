@@ -54,12 +54,12 @@ def GetCustomActions(
 
     actions = []
 
-    # TODO if configuration == "SimpleSchema":
-    # TODO     actions += DynamicPluginArchitecture.CreateRegistrationStatements(
-    # TODO         "DEVELOPMENT_ENVIRONMENT_SIMPLE_SCHEMA_PLUGINS",
-    # TODO         os.path.join(_script_dir, "Scripts", "SimpleSchemaGenerator"),
-    # TODO         lambda fullpath, name, ext: ext == ".py" and name.endswith("Plugin"),
-    # TODO     )
+    if configuration == "SimpleSchema":
+        actions += DynamicPluginArchitecture.CreateRegistrationStatements(
+            "DEVELOPMENT_ENVIRONMENT_SIMPLE_SCHEMA_PLUGINS",
+            os.path.join(_script_dir, "Scripts", "SimpleSchemaGenerator"),
+            lambda fullpath, name, ext: ext == ".py" and name.endswith("Plugin"),
+        )
 
     return actions
 

@@ -1,6 +1,6 @@
 # ----------------------------------------------------------------------
 # |
-# |  HttpCodeGenerator.py
+# |  HttpGenerator.py
 # |
 # |  David Brownell <db@DavidBrownell.com>
 # |      2020-07-16 17:02:19
@@ -105,7 +105,7 @@ def _Invoke(*args, **kwargs):
 
 CodeGenerator                               = GeneratorFactory.CodeGeneratorFactory(
     PLUGINS,
-    "HttpCodeGenerator",
+    "HttpGenerator",
     __doc__.replace("\n", ""),
     r".+({})".format(
         "|".join(itertools.chain(*INPUT_PARSERS.keys()))
@@ -262,6 +262,7 @@ def __CreateContext(context, plugin):
                 )
 
                 roots[input_filename] = root
+                break
 
             except Exception as ex:
                 # Augment the exception with stack information
@@ -323,9 +324,18 @@ def __CreateContext(context, plugin):
 
                         all_variables.add(variable.name)
 
-                # Validate the children
-                for child in endpoint.children:
-                    Validate(input_filename, child)
+                # Handle content that is mutually exclusive
+                for method in endpoint.methods:
+                    if method.default_request and method.requests:
+                        raise Exception("'default_request' and 'requests' are mutually exclusive and cannot both be provided ({})".format(method.verb))
+
+                    for response in method.responses:
+                        if response.default_content and response.contents:
+                            raise Exception("'default_content' and 'contents' are mutually exclusive and cannot both be provided ({}, {})".format(method.verb, response.code))
+
+                    # Validate the children
+                    for child in endpoint.children:
+                        Validate(input_filename, child)
 
             except Exception as ex:
                 # Augment the exception with stack information

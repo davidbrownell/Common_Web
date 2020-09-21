@@ -23,6 +23,6 @@ coverage.xml
 
 .vscode/*
 
-src/HttpCodeGenerator/SimpleSchema/GeneratedCode/PythonYaml/Compiler.ConditionalInvocationQueryMixin.data
-src/HttpCodeGenerator/SimpleSchema/GeneratedCode/PythonXml/Compiler.ConditionalInvocationQueryMixin.data
-src/HttpCodeGenerator/SimpleSchema/GeneratedCode/PythonJson/Compiler.ConditionalInvocationQueryMixin.data
+src/HttpGenerator/SimpleSchema/GeneratedCode/PythonYaml/Compiler.ConditionalInvocationQueryMixin.data
+src/HttpGenerator/SimpleSchema/GeneratedCode/PythonXml/Compiler.ConditionalInvocationQueryMixin.data
+src/HttpGenerator/SimpleSchema/GeneratedCode/PythonJson/Compiler.ConditionalInvocationQueryMixin.data

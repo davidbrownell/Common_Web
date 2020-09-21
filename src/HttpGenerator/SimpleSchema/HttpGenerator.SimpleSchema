@@ -1,6 +1,6 @@
 # ----------------------------------------------------------------------
 # |
-# |  HttpCodeGenerator.SimpleSchema
+# |  HttpGenerator.SimpleSchema
 # |
 # |  David Brownell <db@DavidBrownell.com>
 # |      2020-07-16 18:22:05
@@ -86,12 +86,22 @@
         [simple_schema_content simple_schema_content]
         [context context]
 
-        <requests key=content_type *>:
-            [content_type string]
-
+        (RequestContent):
             <headers type_descriptions>
             <query_items type_descriptions>
             <form_items type_descriptions>
+            <body type_description ?>
+
+        # Request content that should be mapped to dialect-specific
+        # content. `default_request` or `requests` should be specified,
+        # but not both.
+        <default_request RequestContent ?>
+
+        <requests RequestContent key=content_type *>:
+            [content_type string]
+
+        (ResponseContent):
+            <headers type_descriptions>
             <body type_description ?>
 
         <responses key=code +>:
@@ -102,10 +112,12 @@
             [simple_schema_content simple_schema_content]
             [context context]
 
-            <contents key=content_type *>:
-                [content_type string]
+            # Response content that should be mapped to dialect-specific
+            # content. `default_content` or `contents` should be specified,
+            # but not both.
+            <default_content ResponseContent ?>
 
-                <headers type_descriptions>
-                <body type_description ?>
+            <contents ResponseContent key=content_type *>:
+                [content_type string]
 
     <children endpoints refines_arity=true *>

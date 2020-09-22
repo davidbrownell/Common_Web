@@ -361,17 +361,21 @@ class Plugin(RelationalPluginImpl):
                             "description": "Returns a '{}' item".format(obj.SingularPascalName),
                         },
                         {
-                            "verb": "PATCH",
-                            "summary": "UPDATE",
-                            "description": "Updates a '{}' item".format(obj.SingularPascalName),
-                        },
-                        {
                             "verb": "DELETE",
                             "summary": "DELETE",
                             "description":
                             "Deletes a '{}' item".format(obj.SingularPascalName),
                         },
                     ]
+
+                    if child_visitor.update_items:
+                        item_endpoint["methods"].append(
+                            {
+                                "verb": "PATCH",
+                                "summary": "UPDATE",
+                                "description": "Updates a '{}' item".format(obj.SingularPascalName),
+                            },
+                        )
 
                     item_endpoint["children"] = []
                     collection_endpoint["children"].append(item_endpoint)

@@ -28,21 +28,18 @@ import CommonEnvironment
 from CommonEnvironment import Interface
 from CommonEnvironment import StringHelpers
 from CommonEnvironment.TypeInfo import Arity
+from CommonEnvironment.TypeInfo.FundamentalTypes.BoolTypeInfo import BoolTypeInfo
+from CommonEnvironment.TypeInfo.FundamentalTypes.StringTypeInfo import StringTypeInfo
 
 from CommonSimpleSchemaGenerator.RelationalPluginImpl import (
     RelationalPluginImpl,
     ChildVisitor as ChildVisitorBase,
-    Object,
     Relationship,
 )
 from CommonSimpleSchemaGenerator.TypeInfo.FundamentalTypes.Serialization.SimpleSchemaVisitor import (
     SimpleSchemaVisitor,
     SimpleSchemaType,
 )
-
-# Note that these imports have already been import by SimpleSchemaGenerator and
-# should always be available without explicit path information.
-from SimpleSchemaGenerator.Schema.Elements import CompoundElement, ExtensionElement, FundamentalElement, ListElement, ReferenceElement
 
 # ----------------------------------------------------------------------
 _script_fullpath                            = CommonEnvironment.ThisFullpath()
@@ -108,6 +105,7 @@ class Plugin(RelationalPluginImpl):
                     def __init__(self):
                         self.identities     = OrderedDict()
                         self.items          = OrderedDict()
+                        self.update_items   = OrderedDict()
                         self.references     = OrderedDict()
                         self.backrefs       = OrderedDict()
 
@@ -120,6 +118,21 @@ class Plugin(RelationalPluginImpl):
                     @Interface.override
                     def OnFundamental(self, item):
                         self.items[item.Name] = item
+
+                        if item.IsMutable:
+                            # Optional values and strings (because empty strings aren't valid)
+                            # need additional information in order to support scenarios where
+                            # the value should be reset.
+                            if item.TypeInfo.Arity.IsOptional or isinstance(item.TypeInfo, StringTypeInfo):
+                                self.update_items["_{}_reset_value".format(item.Name)] = BoolTypeInfo(
+                                    arity=Arity.FromString("?"),
+                                )
+
+                            type_info = copy.deepcopy(item.TypeInfo)
+
+                            type_info.Arity = Arity.FromString("?")
+
+                            self.update_items[item.Name] = type_info
 
                     # ----------------------------------------------------------------------
                     @Interface.override
@@ -207,6 +220,31 @@ class Plugin(RelationalPluginImpl):
                                             simple_schema_type=SimpleSchemaType.Definition,
                                         )
                                         for item_name, item in six.iteritems(child_visitor.items)
+                                    ]
+                                ),
+                                2,
+                            ),
+                        ),
+                    )
+
+                    # Update Items
+                    metadata_content.append(
+                        textwrap.dedent(
+                            """\
+                            (__update_items__):
+                              {}
+
+                            """,
+                        ).format(
+                            "pass" if not child_visitor.update_items else StringHelpers.LeftJustify(
+                                "\n".join(
+                                    [
+                                        simple_schema_visitor.Accept(
+                                            item_type_info,
+                                            item_name,
+                                            simple_schema_type=SimpleSchemaType.Definition,
+                                        )
+                                        for item_name, item_type_info in six.iteritems(child_visitor.update_items)
                                     ]
                                 ),
                                 2,

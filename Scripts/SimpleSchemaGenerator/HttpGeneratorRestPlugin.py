@@ -548,6 +548,21 @@ class Plugin(RelationalPluginImpl):
 
                     endpoint_lookup[obj.Element.DottedName] = item_endpoint["children"]
 
+                # Remove all empty children objects
+                # ----------------------------------------------------------------------
+                def RemoveEmptyChildren(endpoint):
+                    if "children" in endpoint:
+                        if not endpoint["children"]:
+                            del endpoint["children"]
+                        else:
+                            for child in endpoint["children"]:
+                                RemoveEmptyChildren(child)
+
+                # ----------------------------------------------------------------------
+
+                for endpoint in endpoints:
+                    RemoveEmptyChildren(endpoint)
+
                 # Commit the content
                 f.write(
                     rtyaml.dump(
@@ -557,6 +572,5 @@ class Plugin(RelationalPluginImpl):
                                 ("endpoints", endpoints),
                             ],
                         ),
-                        default_style="|",
                     ),
                 )

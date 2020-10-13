@@ -278,7 +278,7 @@ def __CreateContext(context, plugin):
                 ).format(
                     args[0],
                     input_filename,
-                    " > ".join(ex.stack),
+                    " > ".join(getattr(ex, "stack", [])),
                 )
 
                 ex.args = tuple(args)
@@ -391,22 +391,41 @@ def __CreateContext(context, plugin):
             while method_index < len(endpoint.methods):
                 method = endpoint.methods[method_index]
 
-                rar_index = 0
-                while rar_index < len(method.request_and_responses):
-                    rar = method.request_and_responses[rar_index]
-
+                # Process the requests
+                request_index = 0
+                while request_index < len(method.requests):
                     if (
-                        content_type_exclude_func(rar)
-                        or not content_type_include_func(rar)
+                        content_type_exclude_func(method.requests[request_index].content_type)
+                        or not content_type_include_func(method.request[request_index].content_type)
                     ):
-                        del method.request_and_responses[rar_index]
+                        del method.requests[request_index]
                     else:
-                        rar_index += 1
+                        request_index += 1
+
+                # Process the responses
+                response_index = 0
+                while response_index < len(method.responses):
+                    response = method.responses[response_index]
+
+                    content_index = 0
+                    while content_index < len(response.contents):
+                        if (
+                            content_type_exclude_func(response.contents[content_index].content_type)
+                            or not content_type_include_func(response.contents[content_index].content_type)
+                        ):
+                            del response.responses[content_index]
+                        else:
+                            content_index += 1
+
+                    if not response.default_content and not response.contents:
+                        del method.responses[response_index]
+                    else:
+                        response_index += 1
 
                 if (
-                    not method.request_and_responses
-                    or (verb_excludes and method.name in verb_excludes)
-                    or (verb_includes and method.name not in verb_includes)
+                    not method.default_request
+                    and not method.requests
+                    and not method.responses
                 ):
                     del endpoint.methods[method_index]
                 else:

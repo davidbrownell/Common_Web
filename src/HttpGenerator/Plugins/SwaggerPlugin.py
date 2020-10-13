@@ -182,14 +182,20 @@ class Plugin(PluginBase):
                     )
 
                     if compile_dm.result != 0:
+                        delete_temp_dir = False
                         return compile_dm.result
 
                 # Extract the generated content
                 dm.stream.write("Extracting...")
                 with dm.stream.DoneManager():
-                    cls._ExtractSimpleSchemaContent(roots, temp_dir)
+                    try:
+                        cls._ExtractSimpleSchemaContent(roots, temp_dir)
 
-                    all_endpoints = OrderedDict([(k, v.endpoints) for k, v in six.iteritems(roots)])
+                        all_endpoints = OrderedDict([(k, v.endpoints) for k, v in six.iteritems(roots)])
+
+                    except:
+                        delete_temp_dir = False
+                        raise
 
             endpoint_data = cls._GenerateEndpointData(all_endpoints, status_stream, **plugin_settings)
 
@@ -240,6 +246,8 @@ class Plugin(PluginBase):
 
         # Denormalize the definitions and properties
 
+        resolved = set()
+
         # ----------------------------------------------------------------------
         def GetDefinitionElement(ref):
             assert ref.startswith("#/"), ref
@@ -248,28 +256,41 @@ class Plugin(PluginBase):
             d = json_schema
 
             for ref_item in ref.split("/"):
-                assert ref_item in d, ref_item
+                assert ref_item in d, (ref, ref_item)
                 d = d[ref_item]
 
             return d
 
         # ----------------------------------------------------------------------
-        def IsRef(dictionary):
-            return len(dictionary) == 1 and "$ref" in dictionary
+        def Resolve(value):
+            if isinstance(value, list):
+                return [Resolve(item) for item in value]
+            elif not isinstance(value, dict):
+                return value
 
-        # ----------------------------------------------------------------------
-        def Resolve(dictionary):
-            if IsRef(dictionary):
-                return Resolve(GetDefinitionElement(dictionary["$ref"]))
+            if "$ref" in value:
+                new_value = Resolve(GetDefinitionElement(value["$ref"]))
 
-            for k, v in six.iteritems(dictionary):
-                if isinstance(v, dict):
-                    if IsRef(v):
-                        dictionary[k] = Resolve(GetDefinitionElement(v["$ref"]))
-                    else:
-                        Resolve(v)
+                for k, v in six.iteritems(value):
+                    if k == "$ref":
+                        continue
 
-            return dictionary
+                    assert not isinstance(v, dict), v
+                    assert not isinstance(v, list), v
+
+                    new_value[k] = v
+
+                return new_value
+
+            if id(value) in resolved:
+                return value
+
+            resolved.add(id(value))
+
+            for k, v in six.iteritems(value):
+                value[k] = Resolve(v)
+
+            return value
 
         # ----------------------------------------------------------------------
 
@@ -297,7 +318,9 @@ class Plugin(PluginBase):
                 assert "properties" in value, value
                 properties = value["properties"]
 
-                assert len(properties) == 1, properties
+                if len(properties) != 1:
+                    raise Exception("Multiple values were found '{}'".format(list(six.iterkeys(properties))))
+
                 property_name = next(six.iterkeys(properties))
 
                 return (
@@ -358,13 +381,16 @@ class Plugin(PluginBase):
                             }
 
                     if request.body:
-                        assert "body" in request_schema
-                        body = request_schema["body"]
+                        is_required, body_schema = GetSchemaValue(
+                            request_schema,
+                            "body",
+                            extract_single_child=True,
+                        )
 
                         request.body.simple_schema = {
                             "string" : request.body.simple_schema,
-                            "content" : body,
-                            "is_required" : body.get("type", None) == "object" and bool(body.get("required", [])),
+                            "content" : request_schema,
+                            "is_required" : is_required,
                         }
 
                 for response_index, response in enumerate(method.responses):
@@ -394,13 +420,16 @@ class Plugin(PluginBase):
                                 }
 
                         if content.body:
-                            assert "body" in content_schema
-                            body = content_schema["body"]
+                            is_required, body_schema = GetSchemaValue(
+                                content_schema,
+                                "body",
+                                extract_single_child=True,
+                            )
 
                             content.body.simple_schema = {
                                 "string" : content.body.simple_schema,
-                                "content" : body,
-                                "is_required" : body.get("type", None) == "object" and bool(body.get("required", [])),
+                                "content" : body_schema,
+                                "is_required" : is_required,
                             }
 
             for child_index, child in enumerate(endpoint.children):
@@ -801,7 +830,7 @@ class Plugin(PluginBase):
             if components:
                 result["components"] = components
             if tags:
-                result["tags"] = tags
+                result["tags"] = [{"name": tag} for tag in set(tags)]
 
             return result
 

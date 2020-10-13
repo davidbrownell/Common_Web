@@ -181,7 +181,7 @@ class Plugin(RelationalPluginImpl):
                     metadata_content.append(
                         textwrap.dedent(
                             """\
-                            (__identities__):
+                            <__identities__>:
                               {}
 
                             """,
@@ -189,11 +189,7 @@ class Plugin(RelationalPluginImpl):
                             StringHelpers.LeftJustify(
                                 "\n".join(
                                     [
-                                        simple_schema_visitor.Accept(
-                                            item.TypeInfo,
-                                            identity_name,
-                                            simple_schema_type=SimpleSchemaType.Definition,
-                                        )
+                                        simple_schema_visitor.Accept(item.TypeInfo, identity_name)
                                         for identity_name, item in six.iteritems(child_visitor.identities)
                                     ]
                                 ),
@@ -206,7 +202,7 @@ class Plugin(RelationalPluginImpl):
                     metadata_content.append(
                         textwrap.dedent(
                             """\
-                            (__items__):
+                            <__items__>:
                               {}
 
                             """,
@@ -214,11 +210,7 @@ class Plugin(RelationalPluginImpl):
                             "pass" if not child_visitor.items else StringHelpers.LeftJustify(
                                 "\n".join(
                                     [
-                                        simple_schema_visitor.Accept(
-                                            item.TypeInfo,
-                                            item_name,
-                                            simple_schema_type=SimpleSchemaType.Definition,
-                                        )
+                                        simple_schema_visitor.Accept(item.TypeInfo, item_name)
                                         for item_name, item in six.iteritems(child_visitor.items)
                                     ]
                                 ),
@@ -231,7 +223,7 @@ class Plugin(RelationalPluginImpl):
                     metadata_content.append(
                         textwrap.dedent(
                             """\
-                            (__update_items__):
+                            <__update_items__>:
                               {}
 
                             """,
@@ -239,11 +231,7 @@ class Plugin(RelationalPluginImpl):
                             "pass" if not child_visitor.update_items else StringHelpers.LeftJustify(
                                 "\n".join(
                                     [
-                                        simple_schema_visitor.Accept(
-                                            item_type_info,
-                                            item_name,
-                                            simple_schema_type=SimpleSchemaType.Definition,
-                                        )
+                                        simple_schema_visitor.Accept(item_type_info, item_name)
                                         for item_name, item_type_info in six.iteritems(child_visitor.update_items)
                                     ]
                                 ),
@@ -258,13 +246,22 @@ class Plugin(RelationalPluginImpl):
                     metadata_content.append(
                         textwrap.dedent(
                             """\
-                            (__references__):
+                            <__references__>:
                               {}
 
                             """,
                         ).format(
                             "pass" if not reference_items else StringHelpers.LeftJustify(
-                                "\n".join(["({} __metadata_{})".format(item_name, item.ReferencedObject.UniqueName) for item_name, item in reference_items]),
+                                "\n".join(
+                                    [
+                                        "<{} __metadata_{}{}>".format(
+                                            item_name,
+                                            item.ReferencedObject.UniqueName,
+                                            " *" if item.RelationshipType == Relationship.RelationshipType.ManyToMany else "",
+                                        )
+                                        for item_name, item in reference_items
+                                    ]
+                                ),
                                 2,
                             ),
                         ),
@@ -275,13 +272,22 @@ class Plugin(RelationalPluginImpl):
                     metadata_content.append(
                         textwrap.dedent(
                             """\
-                            (__backrefs__):
+                            <__backrefs__>:
                               {}
 
                             """,
                         ).format(
                             "pass" if not backref_items else StringHelpers.LeftJustify(
-                                "\n".join(["({} __metadata_{})".format(item_name, item.ReferencingObject.UniqueName) for item_name, item in backref_items]),
+                                "\n".join(
+                                    [
+                                        "<{} __metadata_{}{}>".format(
+                                            item_name,
+                                            item.ReferencingObject.UniqueName,
+                                            "" if item.RelationshipType == Relationship.RelationshipType.OneToOne else " *",
+                                        )
+                                        for item_name, item in backref_items
+                                    ]
+                                ),
                                 2,
                             ),
                         ),

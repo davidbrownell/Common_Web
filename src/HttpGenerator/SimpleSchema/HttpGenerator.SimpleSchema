@@ -35,8 +35,7 @@
 (type_descriptions type_description key=name *):
     [name string]
 
-# Opaque value set by some plugins that can be used by other chained plugins to disambiguate scenarios that
-# would otherwise by difficult to process.
+# Opaque value used by some plugins.
 (context string ?)
 
 # SimpleSchema content common to all endpoints
@@ -46,9 +45,9 @@
 # Endpoint available via a http request.
 #
 # Examples:
-#   /Parent/{ParentId}/                                 ( 'ParentId' must be defined in 'variables' )
-#   /Parent/{ParentId}/                                 ( 'ParentId' must be defined in 'variables' )
-#   /Parent/{ParentId}/                                 ( 'ParentId' must be defined in 'variables' )
+#   /Parents/{ParentId}/                                ( 'ParentId' must be defined in 'variables' )
+#   /Parents/{ParentId}/                                ( 'ParentId' must be defined in 'variables' )
+#   /Parents/{ParentId}/                                ( 'ParentId' must be defined in 'variables' )
 #   /A/Longer/Prefix/{Foo}/With/Multiple/{Bar}/Values   ( 'Foo' and 'Bar' must be defined in 'variables' )
 #
 <endpoints key=uri +>:
@@ -104,7 +103,7 @@
             <headers type_descriptions>
             <body type_description ?>
 
-        <responses key=code +>:
+        <responses key=code *>:
             [code int min=0 max=99999]
 
             [summary summary]

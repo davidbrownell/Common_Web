@@ -15,6 +15,7 @@
 # ----------------------------------------------------------------------
 """Contains the RestPluginImpl object"""
 
+import copy
 import enum
 import os
 import sys
@@ -279,35 +280,44 @@ class RestPluginImpl(PluginBase):
                     apply_func(child)
 
                 # Calculate the information necessary to create an instance of this element
-                required_construct_args = OrderedDict()
-                optional_construct_args = OrderedDict()
+                construct_args = OrderedDict()
 
-                for identity_name, identity_type_info in six.iteritems(element.TypeInfo.Items["__identities__"].Items):
-                    if identity_type_info.Arity.IsOptional:
+                # ----------------------------------------------------------------------
+                def GetChildElement(element, child_name):
+                    for child in element.Children:
+                        if child.Name == child_name:
+                            return child
+
+                    return None
+
+                # ----------------------------------------------------------------------
+
+                identities_element = GetChildElement(element, "__identities__")
+                for child in identities_element.Children:
+                    if child.TypeInfo.Arity.IsOptional:
                         continue
 
-                    optional_construct_args[identity_name] = identity_type_info
+                    child = copy.deepcopy(child)
+                    assert child.TypeInfo.Arity.Min == 1, child.Arity
+                    assert child.TypeInfo.Arity.Max == 1, child.Arity
 
-                for item_name, item_type_info in six.iteritems(element.TypeInfo.Items["__items__"].Items):
-                    (
-                        optional_construct_args
-                        if item_type_info.Arity.IsOptional
-                        else required_construct_args
-                    )[item_name] = item_type_info
+                    child.TypeInfo.Arity.Min = 0
 
-                for reference_name, reference_type_info in six.iteritems(element.TypeInfo.Items["__references__"].Items):
-                    (
-                        optional_construct_args
-                        if reference_type_info.Arity.IsOptional
-                        else required_construct_args
-                    )[reference_name] = reference_type_info
+                    construct_args[child.Name] = child
+
+                for child_name in [
+                    "__items__",
+                    "__references__",
+                ]:
+                    items_element = GetChildElement(element, child_name)
+                    for child in items_element.Children:
+                        construct_args[child.Name] = child
 
                 # Commit the augmented data
                 endpoint._element = element
                 endpoint._reference_endpoints = reference_endpoints
                 endpoint._backref_endpoints = backref_endpoints
-                endpoint._required_construct_args = required_construct_args
-                endpoint._optional_construct_args = optional_construct_args
+                endpoint._construct_args = construct_args
 
                 # Process all children
                 for child in endpoint.children:

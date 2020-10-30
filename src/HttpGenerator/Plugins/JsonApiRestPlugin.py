@@ -65,14 +65,13 @@ class Plugin(RestPluginImpl):
     def GenerateCustomSettingsAndDefaults(cls):
         yield from super(Plugin, cls).GenerateCustomSettingsAndDefaults()
         yield "no_pagination", False
+        yield "no_sort", False
 
     # ----------------------------------------------------------------------
     # |  Private Methods
     @classmethod
     @Interface.override
-    def _DecorateEndpoints(cls, parsed_endpoints, output_endpoint_info, no_pagination):
-        print("BugBug", no_pagination)
-
+    def _DecorateEndpoints(cls, parsed_endpoints, output_endpoint_info, no_pagination, no_sort):
         if not hasattr(output_endpoint_info, "simple_schema_content"):
             output_endpoint_info.simple_schema_content = ""
 
@@ -128,7 +127,7 @@ class Plugin(RestPluginImpl):
                 if source_method.verb == "POST":
                     func = processor.OnPost
                 elif source_method.verb == "GET":
-                    func = processor.OnGet
+                    func = lambda *args: processor.OnGet(*args, no_pagination, no_sort)
                 elif source_method.verb == "PATCH":
                     func = processor.OnPatch
                 elif source_method.verb == "DELETE":
@@ -274,30 +273,32 @@ class _HttpProcessor(Interface.Interface):
 
     # ----------------------------------------------------------------------
     @classmethod
-    def GetGetItemsQueryItems(cls, source_endpoint):
+    def GetGetItemsQueryItems(cls, source_endpoint, no_pagination, no_sort):
         query_items = cls.GetGetQueryItems()
 
-        if getattr(source_endpoint._element.TypeInfo.Items["__items__"], "Items", []):
-            query_items.append(
-                {
-                    "name" : SORT_QUERY_ITEM_NAME,
-                    "description" : 'Attribute values use to sort results (example: "attr1,-attr3")',
-                    "simple_schema" : "<sort Sort>",
-                },
-            )
+        if not no_sort:
+            if getattr(source_endpoint._element.TypeInfo.Items["__items__"], "Items", []):
+                query_items.append(
+                    {
+                        "name" : SORT_QUERY_ITEM_NAME,
+                        "description" : 'Attribute values use to sort results (example: "attr1,-attr3")',
+                        "simple_schema" : "<sort Sort>",
+                    },
+                )
 
-        query_items += [
-            {
-                "name" : PAGE_QUERY_ITEM_NAME,
-                "description" : "Page index (when results are paginated)",
-                "simple_schema" : "<page int min=0 ?>",
-            },
-            {
-                "name" : PAGE_SIZE_QUERY_ITEM_NAME,
-                "description" : "Page size (when results are paginated)",
-                "simple_schema" : "<page_size int min=1 ?>",
-            },
-        ]
+        if not no_pagination:
+            query_items += [
+                {
+                    "name" : PAGE_QUERY_ITEM_NAME,
+                    "description" : "Page index (when results are paginated)",
+                    "simple_schema" : "<page int min=0 ?>",
+                },
+                {
+                    "name" : PAGE_SIZE_QUERY_ITEM_NAME,
+                    "description" : "Page size (when results are paginated)",
+                    "simple_schema" : "<page_size int min=1 ?>",
+                },
+            ]
 
         return query_items
 
@@ -319,7 +320,7 @@ class _HttpProcessor(Interface.Interface):
     # ----------------------------------------------------------------------
     @staticmethod
     @Interface.abstractmethod
-    def OnGet(source_endpoint, dest_endpoint, dest_method):
+    def OnGet(source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
         raise Exception("Abstract method")
 
     # ----------------------------------------------------------------------
@@ -342,26 +343,68 @@ class _CollectionProcessor(_HttpProcessor):
     @classmethod
     @Interface.override
     def OnPost(cls, source_endpoint, dest_endpoint, dest_method):
-        # BugBug create_items = source_endpoint._element.TypeInfo.Items["__create_items__"].Items
+        # ----------------------------------------------------------------------
+        def IsReferenceElement(element):
+            return "ReferenceElement" in str(element.__class__)
+
+        # ----------------------------------------------------------------------
+        def GetReferenceArityString(element):
+            result = element.TypeInfo.Arity.ToString()
+            if result:
+                result = " {}".format(result)
+
+            return result
+
+        # ----------------------------------------------------------------------
+
+        attributes = []
+        references = []
+
+        for name, element in six.iteritems(source_endpoint._construct_args):
+            if IsReferenceElement(element):
+                references.append(
+                    "<{name} {ref}_id{arity}>".format(
+                        name=name,
+                        ref=cls.ExtractNameFromMetadataName(element.Reference.Name),
+                        arity=GetReferenceArityString(element),
+                    ),
+                )
+            else:
+                attributes.append(SimpleSchemaVisitor.Accept(element.TypeInfo, name))
+
+        if attributes:
+            attributes = textwrap.dedent(
+                """\
+                <attributes>:
+                    {}
+                """,
+            ).format(StringHelpers.LeftJustify("\n".join(attributes), 4))
+
+        if references:
+            references = textwrap.dedent(
+                """\
+                <relationships>:
+                    {}
+                """,
+            ).format(StringHelpers.LeftJustify("\n".join(references), 4))
 
         dest_method.requests.append(
             {
                 "content_type" : cls.CONTENT_TYPE,
-                # BugBug "body" : textwrap.dedent(
-                # BugBug     """\
-                # BugBug     <data>:
-                # BugBug         pass # BugBug
-                # BugBug         # BugBug: type
-                # BugBug         # BugBug: Attributes
-                # BugBug         # BugBug: relationships
-                # BugBug     """,
-                # BugBug ).format(
-                # BugBug ),
+                "body" : {
+                    "simple_schema" : textwrap.dedent(
+                        """\
+                        <data>:
+                            <type {reference}_id.type>{attributes}{references}
+                        """,
+                    ).format(
+                        reference=source_endpoint.group,
+                        attributes="" if not attributes else "\n    {}".format(StringHelpers.LeftJustify(attributes, 4).rstrip()),
+                        references="" if not references else "\n    {}".format(StringHelpers.LeftJustify(references, 4).rstrip()),
+                    ),
+                },
             },
         )
-
-        # BugBug: return 201
-        # BugBug: Location header should be uri
 
         cls.GetOrCreateResponseContents(dest_method, 200).append(
             {
@@ -390,7 +433,7 @@ class _CollectionProcessor(_HttpProcessor):
     # ----------------------------------------------------------------------
     @classmethod
     @Interface.override
-    def OnGet(cls, source_endpoint, dest_endpoint, dest_method):
+    def OnGet(cls, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
         # TODO: Handle variants
 
         unique_name = source_endpoint.group
@@ -398,7 +441,7 @@ class _CollectionProcessor(_HttpProcessor):
         dest_method.requests.append(
             {
                 "content_type" : cls.CONTENT_TYPE,
-                "query_items" : cls.GetGetItemsQueryItems(source_endpoint),
+                "query_items" : cls.GetGetItemsQueryItems(source_endpoint, no_pagination, no_sort),
             },
         )
 
@@ -621,7 +664,7 @@ class _CollectionItemProcessor(_HttpProcessor):
     # ----------------------------------------------------------------------
     @classmethod
     @Interface.override
-    def OnGet(cls, source_endpoint, dest_endpoint, dest_method):
+    def OnGet(cls, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
         dest_method.requests.append(
             {
                 "content_type" : cls.CONTENT_TYPE,
@@ -737,7 +780,7 @@ class _ReferenceCollectionProcessor(_HttpProcessor):
     # ----------------------------------------------------------------------
     @classmethod
     @Interface.override
-    def OnGet(cls, source_endpoint, dest_endpoint, dest_method):
+    def OnGet(cls, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
         reference_type = cls.ExtractRelationshipNameFromMetadataName(
             source_endpoint,
             is_reference=True,
@@ -746,7 +789,7 @@ class _ReferenceCollectionProcessor(_HttpProcessor):
         dest_method.requests.append(
             {
                 "content_type" : cls.CONTENT_TYPE,
-                "query_items" : cls.GetGetItemsQueryItems(source_endpoint),
+                "query_items" : cls.GetGetItemsQueryItems(source_endpoint, no_pagination, no_sort),
             },
         )
 
@@ -812,7 +855,7 @@ class _ReferenceCollectionItemProcessor(_HttpProcessor):
     # ----------------------------------------------------------------------
     @classmethod
     @Interface.override
-    def OnGet(cls, source_endpoint, dest_endpoint, dest_method):
+    def OnGet(cls, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
         reference_type = cls.ExtractRelationshipNameFromMetadataName(
             source_endpoint,
             is_reference=True,
@@ -875,7 +918,7 @@ class _ReferenceItemProcessor(_HttpProcessor):
     # ----------------------------------------------------------------------
     @classmethod
     @Interface.override
-    def OnGet(cls, source_endpoint, dest_endpoint, dest_method):
+    def OnGet(cls, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
         reference_type = cls.ExtractRelationshipNameFromMetadataName(
             source_endpoint,
             is_reference=True,
@@ -985,7 +1028,7 @@ class _BackrefCollectionProcessor(_HttpProcessor):
     # ----------------------------------------------------------------------
     @classmethod
     @Interface.override
-    def OnGet(cls, source_endpoint, dest_endpoint, dest_method):
+    def OnGet(cls, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
         reference_type = cls.ExtractRelationshipNameFromMetadataName(
             source_endpoint,
             is_reference=False,
@@ -995,7 +1038,7 @@ class _BackrefCollectionProcessor(_HttpProcessor):
             {
                 "content_type" : cls.CONTENT_TYPE,
                 "query_items" : cls.PruneBackrefQueryItems(
-                    cls.GetGetItemsQueryItems(source_endpoint)
+                    cls.GetGetItemsQueryItems(source_endpoint, no_pagination, no_sort)
                 ),
             },
         )
@@ -1062,7 +1105,7 @@ class _BackrefCollectionItemProcessor(_HttpProcessor):
     # ----------------------------------------------------------------------
     @classmethod
     @Interface.override
-    def OnGet(cls, source_endpoint, dest_endpoint, dest_method):
+    def OnGet(cls, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
         reference_type = cls.ExtractRelationshipNameFromMetadataName(
             source_endpoint,
             is_reference=False,
@@ -1127,7 +1170,7 @@ class _BackrefItemProcessor(_HttpProcessor):
     # ----------------------------------------------------------------------
     @classmethod
     @Interface.override
-    def OnGet(cls, source_endpoint, dest_endpoint, dest_method):
+    def OnGet(cls, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
         reference_type = cls.ExtractRelationshipNameFromMetadataName(
             source_endpoint,
             is_reference=False,

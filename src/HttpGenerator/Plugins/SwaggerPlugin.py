@@ -389,7 +389,7 @@ class Plugin(PluginBase):
 
                         request.body.simple_schema = {
                             "string" : request.body.simple_schema,
-                            "content" : request_schema,
+                            "content" : body_schema,
                             "is_required" : is_required,
                         }
 

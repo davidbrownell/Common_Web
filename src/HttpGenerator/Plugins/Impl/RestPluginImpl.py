@@ -105,6 +105,7 @@ class RestPluginImpl(PluginBase):
         verbose,
         temp_dir,
         no_scrub,
+        **custom_args,
     ):
         status_stream.write("Extracting endpoint types...")
         with status_stream.DoneManager():
@@ -230,8 +231,7 @@ class RestPluginImpl(PluginBase):
         status_stream.write("Extracting endpoint metadata...")
         with status_stream.DoneManager():
             # ----------------------------------------------------------------------
-            def Validate(elements_lookup, endpoint):
-
+            def ValidateAndAugment(elements_lookup, endpoint):
                 element_name = "__metadata_{}".format(getattr(endpoint, "group", endpoint.unique_name))
 
                 element = elements_lookup.get(element_name, None)
@@ -241,7 +241,7 @@ class RestPluginImpl(PluginBase):
                 for expected_child in [
                     "__identities__",
                     "__items__",
-                    "__update_items__",
+                    "__mutable_items__",
                     "__references__",
                     "__backrefs__",
                 ]:
@@ -254,10 +254,64 @@ class RestPluginImpl(PluginBase):
                             ),
                         )
 
-                endpoint._element = element
+                # Capture the relationship elements, as that information will be needed
+                # by derived plugins.
+                reference_endpoints = {}
+                backref_endpoints = {}
 
+                # ----------------------------------------------------------------------
+                def ApplyRelationship(element, endpoints):
+                    for child in element.Children:
+                        endpoints[child.Name] = child
+
+                # ----------------------------------------------------------------------
+
+                relationship_map = {
+                    "__references__" : lambda element: ApplyRelationship(element, reference_endpoints),
+                    "__backrefs__" : lambda element: ApplyRelationship(element, backref_endpoints),
+                }
+
+                for child in element.Children:
+                    apply_func = relationship_map.get(child.Name, None)
+                    if apply_func is None:
+                        continue
+
+                    apply_func(child)
+
+                # Calculate the information necessary to create an instance of this element
+                required_construct_args = OrderedDict()
+                optional_construct_args = OrderedDict()
+
+                for identity_name, identity_type_info in six.iteritems(element.TypeInfo.Items["__identities__"].Items):
+                    if identity_type_info.Arity.IsOptional:
+                        continue
+
+                    optional_construct_args[identity_name] = identity_type_info
+
+                for item_name, item_type_info in six.iteritems(element.TypeInfo.Items["__items__"].Items):
+                    (
+                        optional_construct_args
+                        if item_type_info.Arity.IsOptional
+                        else required_construct_args
+                    )[item_name] = item_type_info
+
+                for reference_name, reference_type_info in six.iteritems(element.TypeInfo.Items["__references__"].Items):
+                    (
+                        optional_construct_args
+                        if reference_type_info.Arity.IsOptional
+                        else required_construct_args
+                    )[reference_name] = reference_type_info
+
+                # Commit the augmented data
+                endpoint._element = element
+                endpoint._reference_endpoints = reference_endpoints
+                endpoint._backref_endpoints = backref_endpoints
+                endpoint._required_construct_args = required_construct_args
+                endpoint._optional_construct_args = optional_construct_args
+
+                # Process all children
                 for child in endpoint.children:
-                    Validate(elements_lookup, child)
+                    ValidateAndAugment(elements_lookup, child)
 
             # ----------------------------------------------------------------------
 
@@ -270,7 +324,7 @@ class RestPluginImpl(PluginBase):
                         elements_lookup[element.Name] = element
 
                     for endpoint in root.endpoints:
-                        Validate(elements_lookup, endpoint)
+                        ValidateAndAugment(elements_lookup, endpoint)
                 except Exception as ex:
                     raise Exception("{} <{}>".format(str(ex), root_filename)) from None
 
@@ -304,7 +358,7 @@ class RestPluginImpl(PluginBase):
 
                     this_dm.stream.write("Updating content...")
                     with this_dm.stream.DoneManager():
-                        cls._DecorateEndpoints(root.endpoints, yaml_content)
+                        cls._DecorateEndpoints(root.endpoints, yaml_content, **custom_args)
 
                     this_dm.stream.write("Writing content...")
                     with this_dm.stream.DoneManager():
@@ -321,5 +375,5 @@ class RestPluginImpl(PluginBase):
     # ----------------------------------------------------------------------
     @staticmethod
     @Interface.abstractmethod
-    def _DecorateEndpoints(parsed_endpoints, output_endpoint_info):
+    def _DecorateEndpoints(parsed_endpoints, output_endpoint_info, **kwargs):
         raise Exception("Abstract method")

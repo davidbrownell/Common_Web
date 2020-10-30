@@ -182,7 +182,7 @@ class Plugin(RelationalPluginImpl):
                         textwrap.dedent(
                             """\
                             <__identities__>:
-                              {}
+                                {}
 
                             """,
                         ).format(
@@ -193,7 +193,7 @@ class Plugin(RelationalPluginImpl):
                                         for identity_name, item in six.iteritems(child_visitor.identities)
                                     ]
                                 ),
-                                2,
+                                4,
                             ),
                         ),
                     )
@@ -203,7 +203,7 @@ class Plugin(RelationalPluginImpl):
                         textwrap.dedent(
                             """\
                             <__items__>:
-                              {}
+                                {}
 
                             """,
                         ).format(
@@ -214,7 +214,7 @@ class Plugin(RelationalPluginImpl):
                                         for item_name, item in six.iteritems(child_visitor.items)
                                     ]
                                 ),
-                                2,
+                                4,
                             ),
                         ),
                     )
@@ -223,8 +223,8 @@ class Plugin(RelationalPluginImpl):
                     metadata_content.append(
                         textwrap.dedent(
                             """\
-                            <__update_items__>:
-                              {}
+                            <__mutable_items__>:
+                                {}
 
                             """,
                         ).format(
@@ -235,7 +235,7 @@ class Plugin(RelationalPluginImpl):
                                         for item_name, item_type_info in six.iteritems(child_visitor.update_items)
                                     ]
                                 ),
-                                2,
+                                4,
                             ),
                         ),
                     )
@@ -243,11 +243,25 @@ class Plugin(RelationalPluginImpl):
                     # Generate the relationship structures
                     reference_items = [(item_name, item) for item_name, item in six.iteritems(child_visitor.references) if not item.IsParentChild]
 
+                    # ----------------------------------------------------------------------
+                    def GetReferenceArity(item):
+                        arity = item.Element.TypeInfo.Arity
+
+                        if item.RelationshipType != Relationship.RelationshipType.ManyToMany:
+                            return " ?" if arity.IsOptional else ""
+
+                        if arity.Min == 0:
+                            return " *"
+
+                        return " +"
+
+                    # ----------------------------------------------------------------------
+
                     metadata_content.append(
                         textwrap.dedent(
                             """\
                             <__references__>:
-                              {}
+                                {}
 
                             """,
                         ).format(
@@ -257,23 +271,37 @@ class Plugin(RelationalPluginImpl):
                                         "<{} __metadata_{}{}>".format(
                                             item_name,
                                             item.ReferencedObject.UniqueName,
-                                            " *" if item.RelationshipType == Relationship.RelationshipType.ManyToMany else "",
+                                            GetReferenceArity(item),
                                         )
                                         for item_name, item in reference_items
                                     ]
                                 ),
-                                2,
+                                4,
                             ),
                         ),
                     )
 
                     backref_items = [(item_name, item) for item_name, item in six.iteritems(child_visitor.backrefs) if not item.IsParentChild]
 
+                    # ----------------------------------------------------------------------
+                    def GetBackrefArity(item):
+                        arity = item.Element.TypeInfo.Arity
+
+                        if item.RelationshipType == Relationship.RelationshipType.OneToOne:
+                            return " ?" if arity.IsOptional else ""
+
+                        if arity.Min == 0:
+                            return " *"
+
+                        return " +"
+
+                    # ----------------------------------------------------------------------
+
                     metadata_content.append(
                         textwrap.dedent(
                             """\
                             <__backrefs__>:
-                              {}
+                                {}
 
                             """,
                         ).format(
@@ -283,12 +311,13 @@ class Plugin(RelationalPluginImpl):
                                         "<{} __metadata_{}{}>".format(
                                             item_name,
                                             item.ReferencingObject.UniqueName,
-                                            "" if item.RelationshipType == Relationship.RelationshipType.OneToOne else " *",
+                                            # BugBug: Handle required/Not required
+                                            GetBackrefArity(item),
                                         )
                                         for item_name, item in backref_items
                                     ]
                                 ),
-                                2,
+                                4,
                             ),
                         ),
                     )
@@ -298,12 +327,12 @@ class Plugin(RelationalPluginImpl):
                         textwrap.dedent(
                             """\
                             (__metadata_{}):
-                              {}
+                                {}
 
                             """,
                         ).format(
                             obj.UniqueName,
-                            StringHelpers.LeftJustify("".join(metadata_content).rstrip(), 2),
+                            StringHelpers.LeftJustify("".join(metadata_content).rstrip(), 4),
                         ),
                     )
 

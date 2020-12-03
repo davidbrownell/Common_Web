@@ -311,7 +311,6 @@ class Plugin(RelationalPluginImpl):
                                         "<{} __metadata_{}{}>".format(
                                             item_name,
                                             item.ReferencingObject.UniqueName,
-                                            # BugBug: Handle required/Not required
                                             GetBackrefArity(item),
                                         )
                                         for item_name, item in backref_items

@@ -248,7 +248,7 @@ class RestPluginImpl(PluginBase):
                 ]:
                     if expected_child not in element.TypeInfo.Items:
                         raise Exception(
-                            "The child '{}' was not defined in the SimpleSchema element '{}' associate with the endpoint '{}'".format(
+                            "The child '{}' was not defined in the SimpleSchema element '{}' associated with the endpoint '{}'".format(
                                 expected_child,
                                 element_name,
                                 endpoint.full_uri,

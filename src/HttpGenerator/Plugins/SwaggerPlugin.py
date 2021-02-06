@@ -18,6 +18,7 @@
 import itertools
 import json
 import os
+import re
 import textwrap
 
 from collections import OrderedDict
@@ -50,7 +51,7 @@ class Plugin(PluginBase):
     #   - Multiple servers are not supported
     #   - Server Variables are not supported
     #   - externalDocs are not supported
-    #   - security is not supported
+    #   - security support is limited
 
     # ----------------------------------------------------------------------
     # |  Public Properties
@@ -445,8 +446,9 @@ class Plugin(PluginBase):
                 endpoint_index += 1
 
     # ----------------------------------------------------------------------
-    @staticmethod
+    @classmethod
     def _GenerateEndpointData(
+        cls,
         all_endpoints,
         status_stream,
         open_api_version,
@@ -505,6 +507,7 @@ class Plugin(PluginBase):
             uri_parameters = OrderedDict()
 
             paths = OrderedDict()
+            security_schemes = OrderedDict()
             components = OrderedDict()
             tags = []
 
@@ -584,6 +587,10 @@ class Plugin(PluginBase):
                                         ("query", request.query_items),
                                     ]:
                                         for item in items:
+                                            if item.name == "Authorization" and in_type == "header":
+                                                this_method["security"] = cls._ExtractAuthorizationScheme(item, security_schemes)
+                                                continue
+
                                             parameters.append(
                                                 {
                                                     "name" : item.name,
@@ -596,8 +603,8 @@ class Plugin(PluginBase):
                                             if item.description:
                                                 parameters[-1]["description"] = item.description
 
-                                    assert parameters
-                                    request_parameters = (parameters, request.content_type)
+                                    if parameters:
+                                        request_parameters = (parameters, request.content_type)
 
                                 else:
                                     warning_stream.write(
@@ -827,6 +834,8 @@ class Plugin(PluginBase):
             assert paths
             result["paths"] = paths
 
+            if security_schemes:
+                components["securitySchemes"] = security_schemes
             if components:
                 result["components"] = components
             if tags:
@@ -868,3 +877,24 @@ class Plugin(PluginBase):
         with status_stream.DoneManager():
             with open(output_filename, "w") as f:
                 f.write(rtyaml.dump(endpoint_data))
+
+    # ----------------------------------------------------------------------
+    _ExtractAuthorizationScheme_description_regex       = re.compile(r'description=\"(?P<desc>.+?)\"')
+
+    @classmethod
+    def _ExtractAuthorizationScheme(cls, header, security_schemes):
+        match = cls._ExtractAuthorizationScheme_description_regex.search(header.simple_schema["string"])
+        assert match, header.simple_schema["string"]
+
+        desc = match.group("desc")
+
+        if desc != "Bearer":
+            raise Exception("'Bearer' is the only supported authorization schema right now ({})".format(desc))
+
+        if "auth" not in security_schemes:
+            security_schemes["auth"] = {
+                "type" : "http",
+                "scheme" : desc,
+            }
+
+        return [{ "auth" : [] }]

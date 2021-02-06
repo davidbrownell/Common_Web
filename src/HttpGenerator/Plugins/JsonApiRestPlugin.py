@@ -15,6 +15,7 @@
 # ----------------------------------------------------------------------
 """Contains the Plugin object"""
 
+import enum
 import os
 import textwrap
 
@@ -61,7 +62,9 @@ class Plugin(RestPluginImpl):
         yield from super(Plugin, cls).GenerateCustomSettingsAndDefaults()
         yield "no_pagination", False
         yield "no_sort", False
-        yield "authentication_scheme", ""   # Name in IANA Authentication Scheme registry (https://www.iana.org/assignments/http-authschemes/http-authschemes.xhtml)
+        yield "authentication_scheme", ""                                   # Name in IANA Authentication Scheme registry (https://www.iana.org/assignments/http-authschemes/http-authschemes.xhtml)
+        yield "if_unmodified_since_header_verbs", ""                        # Comma-delimited list of http verbs that include the 'If-Unmodified-Since' header
+        yield "if_unmodified_since_header_is_optional", False               # True if the 'If-Unmodified-Since' header should be considered optional
 
     # ----------------------------------------------------------------------
     # |  Private Methods
@@ -74,9 +77,16 @@ class Plugin(RestPluginImpl):
         no_pagination,
         no_sort,
         authentication_scheme,
+        if_unmodified_since_header_verbs,
+        if_unmodified_since_header_is_optional,
     ):
         if not hasattr(output_endpoint_info, "simple_schema_content"):
             output_endpoint_info.simple_schema_content = ""
+
+        if_unmodified_since_header_verbs = set(_HttpProcessor.Verbs.FromString(item) for item in if_unmodified_since_header_verbs.split(",") if item.strip())
+
+        if if_unmodified_since_header_is_optional and not if_unmodified_since_header_verbs:
+            raise Exception("'if_unmodified_since_header_is_optional' should only be set to True when 'if_unmodified_since_header_verbs' has been provided")
 
         output_endpoint_info.simple_schema_content += textwrap.dedent(
             """\
@@ -103,14 +113,14 @@ class Plugin(RestPluginImpl):
             )
 
         endpoint_processor_map = {
-            RestPluginImpl.EndpointType.Collection : _CollectionProcessor(authentication_scheme),
-            RestPluginImpl.EndpointType.CollectionItem : _CollectionItemProcessor(authentication_scheme),
-            RestPluginImpl.EndpointType.ReferenceCollection : _ReferenceCollectionProcessor(authentication_scheme),
-            RestPluginImpl.EndpointType.ReferenceCollectionItem : _ReferenceCollectionItemProcessor(authentication_scheme),
-            RestPluginImpl.EndpointType.ReferenceItem : _ReferenceItemProcessor(authentication_scheme),
-            RestPluginImpl.EndpointType.BackrefCollection : _BackrefCollectionProcessor(authentication_scheme),
-            RestPluginImpl.EndpointType.BackrefCollectionItem : _BackrefCollectionItemProcessor(authentication_scheme),
-            RestPluginImpl.EndpointType.BackrefItem : _BackrefItemProcessor(authentication_scheme),
+            RestPluginImpl.EndpointType.Collection : _CollectionProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
+            RestPluginImpl.EndpointType.CollectionItem : _CollectionItemProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
+            RestPluginImpl.EndpointType.ReferenceCollection : _ReferenceCollectionProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
+            RestPluginImpl.EndpointType.ReferenceCollectionItem : _ReferenceCollectionItemProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
+            RestPluginImpl.EndpointType.ReferenceItem : _ReferenceItemProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
+            RestPluginImpl.EndpointType.BackrefCollection : _BackrefCollectionProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
+            RestPluginImpl.EndpointType.BackrefCollectionItem : _BackrefCollectionItemProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
+            RestPluginImpl.EndpointType.BackrefItem : _BackrefItemProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
         }
 
         # ----------------------------------------------------------------------
@@ -169,8 +179,15 @@ class _HttpProcessor(Interface.Interface):
     CONTENT_TYPE                            = "application/vnd.api+json"
 
     # ----------------------------------------------------------------------
-    def __init__(self, authentication_scheme):
-        self.authentication_scheme          = authentication_scheme
+    def __init__(
+        self,
+        authentication_scheme,
+        if_unmodified_since_header_verbs,
+        if_unmodified_since_header_is_optional,
+    ):
+        self.authentication_scheme                      = authentication_scheme
+        self.if_unmodified_since_header_verbs           = if_unmodified_since_header_verbs
+        self.if_unmodified_since_header_is_optional     = if_unmodified_since_header_is_optional
 
     # ----------------------------------------------------------------------
     @staticmethod
@@ -194,6 +211,7 @@ class _HttpProcessor(Interface.Interface):
             400 : ("Bad Request", "The request parameters are not valid."),
             401 : ("Unauthorized", "The request is not authorized."),
             404 : ("Not Found", "An object at this endpoint does not exist."),
+            412 : ("Precondition Failed", "One or more conditions given in the request header fields evaluated to false when tested on the server."),
         }
 
         result = descriptions.get(code, None)
@@ -204,12 +222,15 @@ class _HttpProcessor(Interface.Interface):
         return dest_method.responses[-1]["contents"]
 
     # ----------------------------------------------------------------------
-    @classmethod
-    def CreateResponses(cls, dest_method, *codes):
+    def CreateResponses(self, verb, dest_method, *codes):
+        if verb in self.if_unmodified_since_header_verbs and 412 not in codes:
+            codes = list(codes)
+            codes.append(412)
+
         for code in codes:
-            cls.GetOrCreateResponseContents(dest_method, code).append(
+            self.GetOrCreateResponseContents(dest_method, code).append(
                 {
-                    "content_type" : cls.CONTENT_TYPE,
+                    "content_type" : self.CONTENT_TYPE,
                 },
             )
 
@@ -310,7 +331,7 @@ class _HttpProcessor(Interface.Interface):
         return query_items
 
     # ----------------------------------------------------------------------
-    def GetStandardHeaderItems(self):
+    def GetStandardHeaderItems(self, verb):
         headers = []
 
         if self.authentication_scheme:
@@ -318,6 +339,14 @@ class _HttpProcessor(Interface.Interface):
                 {
                     "name" : "Authorization",
                     "simple_schema" : '<authorization string description="{}">'.format(self.authentication_scheme),
+                },
+            )
+
+        if verb in self.if_unmodified_since_header_verbs:
+            headers.append(
+                {
+                    "name" : "If-Unmodified-Since",
+                    "simple_schema" : "<if_unmodified_since datetime{}>".format(" ?" if self.if_unmodified_since_header_is_optional else ""),
                 },
             )
 
@@ -332,6 +361,29 @@ class _HttpProcessor(Interface.Interface):
 
     # ----------------------------------------------------------------------
     # ----------------------------------------------------------------------
+    # ----------------------------------------------------------------------
+    class Verbs(enum.Enum):
+        Post                                = enum.auto()
+        Get                                 = enum.auto()
+        Patch                               = enum.auto()
+        Delete                              = enum.auto()
+
+        # ----------------------------------------------------------------------
+        @classmethod
+        def FromString(cls, value):
+            lvalue = value.strip().lower()
+
+            if lvalue == "post":
+                return cls.Post
+            elif lvalue == "get":
+                return cls.Get
+            elif lvalue == "patch":
+                return cls.Patch
+            elif lvalue == "delete":
+                return cls.Delete
+            else:
+                raise Exception("The value '{}' does not correspond to a supported verb".format(value))
+
     # ----------------------------------------------------------------------
     @staticmethod
     @Interface.abstractmethod
@@ -410,7 +462,7 @@ class _CollectionProcessor(_HttpProcessor):
         dest_method.requests.append(
             {
                 "content_type" : self.CONTENT_TYPE,
-                "headers" : self.GetStandardHeaderItems(),
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Post),
                 "body" : {
                     "simple_schema" : textwrap.dedent(
                         """\
@@ -448,7 +500,7 @@ class _CollectionProcessor(_HttpProcessor):
             },
         )
 
-        self.CreateResponses(dest_method, 400, 401)
+        self.CreateResponses(self.Verbs.Post, dest_method, 400, 401)
 
     # ----------------------------------------------------------------------
     @Interface.override
@@ -460,7 +512,7 @@ class _CollectionProcessor(_HttpProcessor):
         dest_method.requests.append(
             {
                 "content_type" : self.CONTENT_TYPE,
-                "headers" : self.GetStandardHeaderItems(),
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Get),
                 "query_items" : self.GetGetItemsQueryItems(source_endpoint, no_pagination, no_sort),
             },
         )
@@ -486,7 +538,7 @@ class _CollectionProcessor(_HttpProcessor):
             },
         )
 
-        self.CreateResponses(dest_method, 400, 401)
+        self.CreateResponses(self.Verbs.Get, dest_method, 400, 401)
 
         identities = source_endpoint._element.TypeInfo.Items["__identities__"].Items
         items = getattr(source_endpoint._element.TypeInfo.Items["__items__"], "Items", [])
@@ -686,7 +738,7 @@ class _CollectionItemProcessor(_HttpProcessor):
         dest_method.requests.append(
             {
                 "content_type" : self.CONTENT_TYPE,
-                "headers" : self.GetStandardHeaderItems(),
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Get),
                 "query_items" : self.GetGetQueryItems(),
             },
         )
@@ -708,7 +760,7 @@ class _CollectionItemProcessor(_HttpProcessor):
             },
         )
 
-        self.CreateResponses(dest_method, 400, 401, 404)
+        self.CreateResponses(self.Verbs.Get, dest_method, 400, 401, 404)
 
     # ----------------------------------------------------------------------
     @Interface.override
@@ -719,7 +771,7 @@ class _CollectionItemProcessor(_HttpProcessor):
         dest_method.requests.append(
             {
                 "content_type" : self.CONTENT_TYPE,
-                "headers" : self.GetStandardHeaderItems(),
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Patch),
                 "body" : {
                     "simple_schema" : textwrap.dedent(
                         """\
@@ -739,7 +791,7 @@ class _CollectionItemProcessor(_HttpProcessor):
             },
         )
 
-        self.CreateResponses(dest_method, 204, 400, 401, 404)
+        self.CreateResponses(self.Verbs.Patch, dest_method, 204, 400, 401, 404)
 
     # ----------------------------------------------------------------------
     @Interface.override
@@ -747,11 +799,11 @@ class _CollectionItemProcessor(_HttpProcessor):
         dest_method.requests.append(
             {
                 "content_type" : self.CONTENT_TYPE,
-                "headers" : self.GetStandardHeaderItems(),
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Delete),
             },
         )
 
-        self.CreateResponses(dest_method, 204, 401, 404)
+        self.CreateResponses(self.Verbs.Delete, dest_method, 204, 401, 404)
 
 
 # ----------------------------------------------------------------------
@@ -767,7 +819,7 @@ class _ReferenceCollectionProcessor(_HttpProcessor):
         dest_method.requests.append(
             {
                 "content_type" : self.CONTENT_TYPE,
-                "headers" : self.GetStandardHeaderItems(),
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Post),
                 "body" : {
                     "simple_schema" : textwrap.dedent(
                         """\
@@ -799,7 +851,7 @@ class _ReferenceCollectionProcessor(_HttpProcessor):
             },
         )
 
-        self.CreateResponses(dest_method, 400, 401, 404)
+        self.CreateResponses(self.Verbs.Post, dest_method, 400, 401, 404)
 
     # ----------------------------------------------------------------------
     @Interface.override
@@ -812,7 +864,7 @@ class _ReferenceCollectionProcessor(_HttpProcessor):
         dest_method.requests.append(
             {
                 "content_type" : self.CONTENT_TYPE,
-                "headers" : self.GetStandardHeaderItems(),
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Get),
                 "query_items" : self.GetGetItemsQueryItems(source_endpoint, no_pagination, no_sort),
             },
         )
@@ -852,7 +904,7 @@ class _ReferenceCollectionProcessor(_HttpProcessor):
             },
         )
 
-        self.CreateResponses(dest_method, 400, 401)
+        self.CreateResponses(self.Verbs.Get, dest_method, 400, 401)
 
     # ----------------------------------------------------------------------
     @staticmethod
@@ -887,7 +939,7 @@ class _ReferenceCollectionItemProcessor(_HttpProcessor):
         dest_method.requests.append(
             {
                 "content_type" : self.CONTENT_TYPE,
-                "headers" : self.GetStandardHeaderItems(),
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Get),
                 "query_items" : self.GetGetQueryItems(),
             },
         )
@@ -914,7 +966,7 @@ class _ReferenceCollectionItemProcessor(_HttpProcessor):
             },
         )
 
-        self.CreateResponses(dest_method, 400, 401, 404)
+        self.CreateResponses(self.Verbs.Get, dest_method, 400, 401, 404)
 
     # ----------------------------------------------------------------------
     @staticmethod
@@ -928,11 +980,11 @@ class _ReferenceCollectionItemProcessor(_HttpProcessor):
         dest_method.requests.append(
             {
                 "content_type" : self.CONTENT_TYPE,
-                "headers" : self.GetStandardHeaderItems(),
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Delete),
             },
         )
 
-        self.CreateResponses(dest_method, 204, 401, 404)
+        self.CreateResponses(self.Verbs.Delete, dest_method, 204, 401, 404)
 
 
 # ----------------------------------------------------------------------
@@ -954,7 +1006,7 @@ class _ReferenceItemProcessor(_HttpProcessor):
         dest_method.requests.append(
             {
                 "content_type" : self.CONTENT_TYPE,
-                "headers" : self.GetStandardHeaderItems(),
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Get),
                 "query_items" : self.GetGetQueryItems(),
             },
         )
@@ -990,7 +1042,7 @@ class _ReferenceItemProcessor(_HttpProcessor):
             },
         )
 
-        self.CreateResponses(dest_method, 400, 401, 404)
+        self.CreateResponses(self.Verbs.Get, dest_method, 400, 401, 404)
 
     # ----------------------------------------------------------------------
     @Interface.override
@@ -1003,7 +1055,7 @@ class _ReferenceItemProcessor(_HttpProcessor):
         dest_method.requests.append(
             {
                 "content_type" : self.CONTENT_TYPE,
-                "headers" : self.GetStandardHeaderItems(),
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Patch),
                 "body" : {
                     "simple_schema" : textwrap.dedent(
                         """\
@@ -1035,7 +1087,7 @@ class _ReferenceItemProcessor(_HttpProcessor):
             },
         )
 
-        self.CreateResponses(dest_method, 400, 401, 404)
+        self.CreateResponses(self.Verbs.Patch, dest_method, 400, 401, 404)
 
     # ----------------------------------------------------------------------
     @Interface.override
@@ -1043,11 +1095,11 @@ class _ReferenceItemProcessor(_HttpProcessor):
         dest_method.requests.append(
             {
                 "content_type" : self.CONTENT_TYPE,
-                "headers" : self.GetStandardHeaderItems(),
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Delete),
             },
         )
 
-        self.CreateResponses(dest_method, 204, 401, 404)
+        self.CreateResponses(self.Verbs.Delete, dest_method, 204, 401, 404)
 
 
 # ----------------------------------------------------------------------
@@ -1069,7 +1121,7 @@ class _BackrefCollectionProcessor(_HttpProcessor):
         dest_method.requests.append(
             {
                 "content_type" : self.CONTENT_TYPE,
-                "headers" : self.GetStandardHeaderItems(),
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Get),
                 "query_items" : self.PruneBackrefQueryItems(
                     self.GetGetItemsQueryItems(source_endpoint, no_pagination, no_sort)
                 ),
@@ -1111,7 +1163,7 @@ class _BackrefCollectionProcessor(_HttpProcessor):
             },
         )
 
-        self.CreateResponses(dest_method, 400, 401)
+        self.CreateResponses(self.Verbs.Get, dest_method, 400, 401)
 
     # ----------------------------------------------------------------------
     @staticmethod
@@ -1146,7 +1198,7 @@ class _BackrefCollectionItemProcessor(_HttpProcessor):
         dest_method.requests.append(
             {
                 "content_type" : self.CONTENT_TYPE,
-                "headers" : self.GetStandardHeaderItems(),
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Get),
                 "query_items" : self.PruneBackrefQueryItems(
                     self.GetGetQueryItems(),
                 ),
@@ -1175,7 +1227,7 @@ class _BackrefCollectionItemProcessor(_HttpProcessor):
             },
         )
 
-        self.CreateResponses(dest_method, 400, 401, 404)
+        self.CreateResponses(self.Verbs.Get, dest_method, 400, 401, 404)
 
     # ----------------------------------------------------------------------
     @staticmethod
@@ -1209,7 +1261,7 @@ class _BackrefItemProcessor(_HttpProcessor):
         dest_method.requests.append(
             {
                 "content_type" : self.CONTENT_TYPE,
-                "headers" : self.GetStandardHeaderItems(),
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Get),
                 "query_items" : self.PruneBackrefQueryItems(
                     self.GetGetQueryItems(),
                 ),
@@ -1247,7 +1299,7 @@ class _BackrefItemProcessor(_HttpProcessor):
             },
         )
 
-        self.CreateResponses(dest_method, 400, 401, 404)
+        self.CreateResponses(self.Verbs.Get, dest_method, 400, 401, 404)
 
 
     # ----------------------------------------------------------------------

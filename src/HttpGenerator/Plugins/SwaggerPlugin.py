@@ -889,7 +889,7 @@ class Plugin(PluginBase):
         desc = match.group("desc")
 
         if desc != "Bearer":
-            raise Exception("'Bearer' is the only supported authorization schema right now ({})".format(desc))
+            raise Exception("'Bearer' is the only supported authorization scheme at this time ('{}' found)".format(desc))
 
         if "auth" not in security_schemes:
             security_schemes["auth"] = {

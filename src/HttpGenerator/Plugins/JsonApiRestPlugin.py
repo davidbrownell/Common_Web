@@ -16,13 +16,9 @@
 """Contains the Plugin object"""
 
 import enum
-import itertools
 import os
-import re
-import sys
 import textwrap
 
-from collections import OrderedDict
 import six
 
 import CommonEnvironment
@@ -31,7 +27,7 @@ from CommonEnvironment import StringHelpers
 
 from CommonEnvironmentEx.Package import InitRelativeImports
 
-from CommonSimpleSchemaGenerator.TypeInfo.FundamentalTypes.Serialization.SimpleSchemaVisitor import SimpleSchemaVisitor, SimpleSchemaType
+from CommonSimpleSchemaGenerator.TypeInfo.FundamentalTypes.Serialization.SimpleSchemaVisitor import SimpleSchemaVisitor
 
 # ----------------------------------------------------------------------
 _script_fullpath                            = CommonEnvironment.ThisFullpath()
@@ -66,14 +62,31 @@ class Plugin(RestPluginImpl):
         yield from super(Plugin, cls).GenerateCustomSettingsAndDefaults()
         yield "no_pagination", False
         yield "no_sort", False
+        yield "authentication_scheme", ""                                   # Name in IANA Authentication Scheme registry (https://www.iana.org/assignments/http-authschemes/http-authschemes.xhtml)
+        yield "if_unmodified_since_header_verbs", ""                        # Comma-delimited list of http verbs that include the 'If-Unmodified-Since' header
+        yield "if_unmodified_since_header_is_optional", False               # True if the 'If-Unmodified-Since' header should be considered optional
 
     # ----------------------------------------------------------------------
     # |  Private Methods
     @classmethod
     @Interface.override
-    def _DecorateEndpoints(cls, parsed_endpoints, output_endpoint_info, no_pagination, no_sort):
+    def _DecorateEndpoints(
+        cls,
+        parsed_endpoints,
+        output_endpoint_info,
+        no_pagination,
+        no_sort,
+        authentication_scheme,
+        if_unmodified_since_header_verbs,
+        if_unmodified_since_header_is_optional,
+    ):
         if not hasattr(output_endpoint_info, "simple_schema_content"):
             output_endpoint_info.simple_schema_content = ""
+
+        if_unmodified_since_header_verbs = set(_HttpProcessor.Verbs.FromString(item) for item in if_unmodified_since_header_verbs.split(",") if item.strip())
+
+        if if_unmodified_since_header_is_optional and not if_unmodified_since_header_verbs:
+            raise Exception("'if_unmodified_since_header_is_optional' should only be set to True when 'if_unmodified_since_header_verbs' has been provided")
 
         output_endpoint_info.simple_schema_content += textwrap.dedent(
             """\
@@ -100,14 +113,14 @@ class Plugin(RestPluginImpl):
             )
 
         endpoint_processor_map = {
-            RestPluginImpl.EndpointType.Collection : _CollectionProcessor,
-            RestPluginImpl.EndpointType.CollectionItem : _CollectionItemProcessor,
-            RestPluginImpl.EndpointType.ReferenceCollection : _ReferenceCollectionProcessor,
-            RestPluginImpl.EndpointType.ReferenceCollectionItem : _ReferenceCollectionItemProcessor,
-            RestPluginImpl.EndpointType.ReferenceItem : _ReferenceItemProcessor,
-            RestPluginImpl.EndpointType.BackrefCollection : _BackrefCollectionProcessor,
-            RestPluginImpl.EndpointType.BackrefCollectionItem : _BackrefCollectionItemProcessor,
-            RestPluginImpl.EndpointType.BackrefItem : _BackrefItemProcessor,
+            RestPluginImpl.EndpointType.Collection : _CollectionProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
+            RestPluginImpl.EndpointType.CollectionItem : _CollectionItemProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
+            RestPluginImpl.EndpointType.ReferenceCollection : _ReferenceCollectionProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
+            RestPluginImpl.EndpointType.ReferenceCollectionItem : _ReferenceCollectionItemProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
+            RestPluginImpl.EndpointType.ReferenceItem : _ReferenceItemProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
+            RestPluginImpl.EndpointType.BackrefCollection : _BackrefCollectionProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
+            RestPluginImpl.EndpointType.BackrefCollectionItem : _BackrefCollectionItemProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
+            RestPluginImpl.EndpointType.BackrefItem : _BackrefItemProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
         }
 
         # ----------------------------------------------------------------------
@@ -166,6 +179,17 @@ class _HttpProcessor(Interface.Interface):
     CONTENT_TYPE                            = "application/vnd.api+json"
 
     # ----------------------------------------------------------------------
+    def __init__(
+        self,
+        authentication_scheme,
+        if_unmodified_since_header_verbs,
+        if_unmodified_since_header_is_optional,
+    ):
+        self.authentication_scheme                      = authentication_scheme
+        self.if_unmodified_since_header_verbs           = if_unmodified_since_header_verbs
+        self.if_unmodified_since_header_is_optional     = if_unmodified_since_header_is_optional
+
+    # ----------------------------------------------------------------------
     @staticmethod
     def GetOrCreateResponseContents(dest_method, code):
         """Returns the contents array for a particular response code"""
@@ -187,6 +211,7 @@ class _HttpProcessor(Interface.Interface):
             400 : ("Bad Request", "The request parameters are not valid."),
             401 : ("Unauthorized", "The request is not authorized."),
             404 : ("Not Found", "An object at this endpoint does not exist."),
+            412 : ("Precondition Failed", "One or more conditions given in the request header fields evaluated to false when tested on the server."),
         }
 
         result = descriptions.get(code, None)
@@ -197,12 +222,15 @@ class _HttpProcessor(Interface.Interface):
         return dest_method.responses[-1]["contents"]
 
     # ----------------------------------------------------------------------
-    @classmethod
-    def CreateResponses(cls, dest_method, *codes):
+    def CreateResponses(self, verb, dest_method, *codes):
+        if verb in self.if_unmodified_since_header_verbs and 412 not in codes:
+            codes = list(codes)
+            codes.append(412)
+
         for code in codes:
-            cls.GetOrCreateResponseContents(dest_method, code).append(
+            self.GetOrCreateResponseContents(dest_method, code).append(
                 {
-                    "content_type" : cls.CONTENT_TYPE,
+                    "content_type" : self.CONTENT_TYPE,
                 },
             )
 
@@ -303,6 +331,28 @@ class _HttpProcessor(Interface.Interface):
         return query_items
 
     # ----------------------------------------------------------------------
+    def GetStandardHeaderItems(self, verb):
+        headers = []
+
+        if self.authentication_scheme:
+            headers.append(
+                {
+                    "name" : "Authorization",
+                    "simple_schema" : '<authorization string description="{}">'.format(self.authentication_scheme),
+                },
+            )
+
+        if verb in self.if_unmodified_since_header_verbs:
+            headers.append(
+                {
+                    "name" : "If-Unmodified-Since",
+                    "simple_schema" : "<if_unmodified_since datetime{}>".format(" ?" if self.if_unmodified_since_header_is_optional else ""),
+                },
+            )
+
+        return headers
+
+    # ----------------------------------------------------------------------
     @staticmethod
     def PruneBackrefQueryItems(query_items):
         return [
@@ -311,6 +361,29 @@ class _HttpProcessor(Interface.Interface):
 
     # ----------------------------------------------------------------------
     # ----------------------------------------------------------------------
+    # ----------------------------------------------------------------------
+    class Verbs(enum.Enum):
+        Post                                = enum.auto()
+        Get                                 = enum.auto()
+        Patch                               = enum.auto()
+        Delete                              = enum.auto()
+
+        # ----------------------------------------------------------------------
+        @classmethod
+        def FromString(cls, value):
+            lvalue = value.strip().lower()
+
+            if lvalue == "post":
+                return cls.Post
+            elif lvalue == "get":
+                return cls.Get
+            elif lvalue == "patch":
+                return cls.Patch
+            elif lvalue == "delete":
+                return cls.Delete
+            else:
+                raise Exception("The value '{}' does not correspond to a supported verb".format(value))
+
     # ----------------------------------------------------------------------
     @staticmethod
     @Interface.abstractmethod
@@ -337,12 +410,10 @@ class _HttpProcessor(Interface.Interface):
 
 
 # ----------------------------------------------------------------------
-@Interface.staticderived
 class _CollectionProcessor(_HttpProcessor):
     # ----------------------------------------------------------------------
-    @classmethod
     @Interface.override
-    def OnPost(cls, source_endpoint, dest_endpoint, dest_method):
+    def OnPost(self, source_endpoint, dest_endpoint, dest_method):
         # ----------------------------------------------------------------------
         def IsReferenceElement(element):
             return "ReferenceElement" in str(element.__class__)
@@ -365,7 +436,7 @@ class _CollectionProcessor(_HttpProcessor):
                 references.append(
                     "<{name} {ref}_id{arity}>".format(
                         name=name,
-                        ref=cls.ExtractNameFromMetadataName(element.Reference.Name),
+                        ref=self.ExtractNameFromMetadataName(element.Reference.Name),
                         arity=GetReferenceArityString(element),
                     ),
                 )
@@ -390,7 +461,8 @@ class _CollectionProcessor(_HttpProcessor):
 
         dest_method.requests.append(
             {
-                "content_type" : cls.CONTENT_TYPE,
+                "content_type" : self.CONTENT_TYPE,
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Post),
                 "body" : {
                     "simple_schema" : textwrap.dedent(
                         """\
@@ -406,9 +478,9 @@ class _CollectionProcessor(_HttpProcessor):
             },
         )
 
-        cls.GetOrCreateResponseContents(dest_method, 200).append(
+        self.GetOrCreateResponseContents(dest_method, 200).append(
             {
-                "content_type" : cls.CONTENT_TYPE,
+                "content_type" : self.CONTENT_TYPE,
                 "headers" : [
                     {
                         "name" : "Location",
@@ -428,26 +500,26 @@ class _CollectionProcessor(_HttpProcessor):
             },
         )
 
-        cls.CreateResponses(dest_method, 400, 401)
+        self.CreateResponses(self.Verbs.Post, dest_method, 400, 401)
 
     # ----------------------------------------------------------------------
-    @classmethod
     @Interface.override
-    def OnGet(cls, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
+    def OnGet(self, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
         # TODO: Handle variants
 
         unique_name = source_endpoint.group
 
         dest_method.requests.append(
             {
-                "content_type" : cls.CONTENT_TYPE,
-                "query_items" : cls.GetGetItemsQueryItems(source_endpoint, no_pagination, no_sort),
+                "content_type" : self.CONTENT_TYPE,
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Get),
+                "query_items" : self.GetGetItemsQueryItems(source_endpoint, no_pagination, no_sort),
             },
         )
 
-        cls.GetOrCreateResponseContents(dest_method, 200).append(
+        self.GetOrCreateResponseContents(dest_method, 200).append(
             {
-                "content_type" : cls.CONTENT_TYPE,
+                "content_type" : self.CONTENT_TYPE,
                 "body" : {
                     "simple_schema" : textwrap.dedent(
                         """\
@@ -466,7 +538,7 @@ class _CollectionProcessor(_HttpProcessor):
             },
         )
 
-        cls.CreateResponses(dest_method, 400, 401)
+        self.CreateResponses(self.Verbs.Get, dest_method, 400, 401)
 
         identities = source_endpoint._element.TypeInfo.Items["__identities__"].Items
         items = getattr(source_endpoint._element.TypeInfo.Items["__items__"], "Items", [])
@@ -575,7 +647,7 @@ class _CollectionProcessor(_HttpProcessor):
                             """,
                         ).format(
                             name=element.Name,
-                            base=base_name_template.format(cls.ExtractNameFromMetadataName(element.Reference.Name)),
+                            base=base_name_template.format(self.ExtractNameFromMetadataName(element.Reference.Name)),
                             arity=" *" if element.TypeInfo.Arity.IsCollection else " ?" if element.TypeInfo.Arity.IsOptional else "",
                             relationship_type_prefix=relationship_type_prefix,
                             links_meta_content=StringHelpers.LeftJustify(
@@ -653,7 +725,6 @@ class _CollectionProcessor(_HttpProcessor):
 
 
 # ----------------------------------------------------------------------
-@Interface.staticderived
 class _CollectionItemProcessor(_HttpProcessor):
     # ----------------------------------------------------------------------
     @staticmethod
@@ -662,19 +733,19 @@ class _CollectionItemProcessor(_HttpProcessor):
         raise Exception("This should never be called")
 
     # ----------------------------------------------------------------------
-    @classmethod
     @Interface.override
-    def OnGet(cls, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
+    def OnGet(self, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
         dest_method.requests.append(
             {
-                "content_type" : cls.CONTENT_TYPE,
-                "query_items" : cls.GetGetQueryItems(),
+                "content_type" : self.CONTENT_TYPE,
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Get),
+                "query_items" : self.GetGetQueryItems(),
             },
         )
 
-        cls.GetOrCreateResponseContents(dest_method, 200).append(
+        self.GetOrCreateResponseContents(dest_method, 200).append(
             {
-                "content_type" : cls.CONTENT_TYPE,
+                "content_type" : self.CONTENT_TYPE,
                 "body" : {
                     "simple_schema" : textwrap.dedent(
                         """\
@@ -689,18 +760,18 @@ class _CollectionItemProcessor(_HttpProcessor):
             },
         )
 
-        cls.CreateResponses(dest_method, 400, 401, 404)
+        self.CreateResponses(self.Verbs.Get, dest_method, 400, 401, 404)
 
     # ----------------------------------------------------------------------
-    @classmethod
     @Interface.override
-    def OnPatch(cls, source_endpoint, dest_endpoint, dest_method):
+    def OnPatch(self, source_endpoint, dest_endpoint, dest_method):
         mutable_items = source_endpoint._element.TypeInfo.Items["__mutable_items__"].Items
         assert mutable_items
 
         dest_method.requests.append(
             {
-                "content_type" : cls.CONTENT_TYPE,
+                "content_type" : self.CONTENT_TYPE,
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Patch),
                 "body" : {
                     "simple_schema" : textwrap.dedent(
                         """\
@@ -720,30 +791,35 @@ class _CollectionItemProcessor(_HttpProcessor):
             },
         )
 
-        cls.CreateResponses(dest_method, 204, 400, 401, 404)
+        self.CreateResponses(self.Verbs.Patch, dest_method, 204, 400, 401, 404)
 
     # ----------------------------------------------------------------------
-    @classmethod
     @Interface.override
-    def OnDelete(cls, source_endpoint, dest_endpoint, dest_method):
-        cls.CreateResponses(dest_method, 204, 401, 404)
+    def OnDelete(self, source_endpoint, dest_endpoint, dest_method):
+        dest_method.requests.append(
+            {
+                "content_type" : self.CONTENT_TYPE,
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Delete),
+            },
+        )
+
+        self.CreateResponses(self.Verbs.Delete, dest_method, 204, 401, 404)
 
 
 # ----------------------------------------------------------------------
-@Interface.staticderived
 class _ReferenceCollectionProcessor(_HttpProcessor):
     # ----------------------------------------------------------------------
-    @classmethod
     @Interface.override
-    def OnPost(cls, source_endpoint, dest_endpoint, dest_method):
-        reference_type = cls.ExtractRelationshipNameFromMetadataName(
+    def OnPost(self, source_endpoint, dest_endpoint, dest_method):
+        reference_type = self.ExtractRelationshipNameFromMetadataName(
             source_endpoint,
             is_reference=True,
         )
 
         dest_method.requests.append(
             {
-                "content_type" : cls.CONTENT_TYPE,
+                "content_type" : self.CONTENT_TYPE,
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Post),
                 "body" : {
                     "simple_schema" : textwrap.dedent(
                         """\
@@ -755,9 +831,9 @@ class _ReferenceCollectionProcessor(_HttpProcessor):
             },
         )
 
-        cls.GetOrCreateResponseContents(dest_method, 200).append(
+        self.GetOrCreateResponseContents(dest_method, 200).append(
             {
-                "content_type" : cls.CONTENT_TYPE,
+                "content_type" : self.CONTENT_TYPE,
                 "body" : {
                     "simple_schema" : textwrap.dedent(
                         """\
@@ -775,25 +851,25 @@ class _ReferenceCollectionProcessor(_HttpProcessor):
             },
         )
 
-        cls.CreateResponses(dest_method, 400, 401, 404)
+        self.CreateResponses(self.Verbs.Post, dest_method, 400, 401, 404)
 
     # ----------------------------------------------------------------------
-    @classmethod
     @Interface.override
-    def OnGet(cls, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
-        reference_type = cls.ExtractRelationshipNameFromMetadataName(
+    def OnGet(self, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
+        reference_type = self.ExtractRelationshipNameFromMetadataName(
             source_endpoint,
             is_reference=True,
         )
 
         dest_method.requests.append(
             {
-                "content_type" : cls.CONTENT_TYPE,
-                "query_items" : cls.GetGetItemsQueryItems(source_endpoint, no_pagination, no_sort),
+                "content_type" : self.CONTENT_TYPE,
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Get),
+                "query_items" : self.GetGetItemsQueryItems(source_endpoint, no_pagination, no_sort),
             },
         )
 
-        if cls.GetReferenceElement(
+        if self.GetReferenceElement(
             source_endpoint,
             is_reference=True,
         ).TypeInfo.Arity.Min == 0:
@@ -801,9 +877,9 @@ class _ReferenceCollectionProcessor(_HttpProcessor):
         else:
             arity = "+"
 
-        cls.GetOrCreateResponseContents(dest_method, 200).append(
+        self.GetOrCreateResponseContents(dest_method, 200).append(
             {
-                "content_type" : cls.CONTENT_TYPE,
+                "content_type" : self.CONTENT_TYPE,
                 "body" : {
                     "simple_schema" : textwrap.dedent(
                         """\
@@ -828,7 +904,7 @@ class _ReferenceCollectionProcessor(_HttpProcessor):
             },
         )
 
-        cls.CreateResponses(dest_method, 400, 401)
+        self.CreateResponses(self.Verbs.Get, dest_method, 400, 401)
 
     # ----------------------------------------------------------------------
     @staticmethod
@@ -844,7 +920,6 @@ class _ReferenceCollectionProcessor(_HttpProcessor):
 
 
 # ----------------------------------------------------------------------
-@Interface.staticderived
 class _ReferenceCollectionItemProcessor(_HttpProcessor):
     # ----------------------------------------------------------------------
     @staticmethod
@@ -853,10 +928,9 @@ class _ReferenceCollectionItemProcessor(_HttpProcessor):
         raise Exception("This should never be called")
 
     # ----------------------------------------------------------------------
-    @classmethod
     @Interface.override
-    def OnGet(cls, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
-        reference_type = cls.ExtractRelationshipNameFromMetadataName(
+    def OnGet(self, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
+        reference_type = self.ExtractRelationshipNameFromMetadataName(
             source_endpoint,
             is_reference=True,
             uri_component_offset=1,
@@ -864,14 +938,15 @@ class _ReferenceCollectionItemProcessor(_HttpProcessor):
 
         dest_method.requests.append(
             {
-                "content_type" : cls.CONTENT_TYPE,
-                "query_items" : cls.GetGetQueryItems(),
+                "content_type" : self.CONTENT_TYPE,
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Get),
+                "query_items" : self.GetGetQueryItems(),
             },
         )
 
-        cls.GetOrCreateResponseContents(dest_method, 200).append(
+        self.GetOrCreateResponseContents(dest_method, 200).append(
             {
-                "content_type" : cls.CONTENT_TYPE,
+                "content_type" : self.CONTENT_TYPE,
                 "body" : {
                     "simple_schema" : textwrap.dedent(
                         """\
@@ -891,7 +966,7 @@ class _ReferenceCollectionItemProcessor(_HttpProcessor):
             },
         )
 
-        cls.CreateResponses(dest_method, 400, 401, 404)
+        self.CreateResponses(self.Verbs.Get, dest_method, 400, 401, 404)
 
     # ----------------------------------------------------------------------
     @staticmethod
@@ -900,14 +975,19 @@ class _ReferenceCollectionItemProcessor(_HttpProcessor):
         raise Exception("This should never be called")
 
     # ----------------------------------------------------------------------
-    @classmethod
     @Interface.override
-    def OnDelete(cls, source_endpoint, dest_endpoint, dest_method):
-        cls.CreateResponses(dest_method, 204, 401, 404)
+    def OnDelete(self, source_endpoint, dest_endpoint, dest_method):
+        dest_method.requests.append(
+            {
+                "content_type" : self.CONTENT_TYPE,
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Delete),
+            },
+        )
+
+        self.CreateResponses(self.Verbs.Delete, dest_method, 204, 401, 404)
 
 
 # ----------------------------------------------------------------------
-@Interface.staticderived
 class _ReferenceItemProcessor(_HttpProcessor):
     # ----------------------------------------------------------------------
     @staticmethod
@@ -916,22 +996,22 @@ class _ReferenceItemProcessor(_HttpProcessor):
         raise Exception("This should never be called")
 
     # ----------------------------------------------------------------------
-    @classmethod
     @Interface.override
-    def OnGet(cls, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
-        reference_type = cls.ExtractRelationshipNameFromMetadataName(
+    def OnGet(self, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
+        reference_type = self.ExtractRelationshipNameFromMetadataName(
             source_endpoint,
             is_reference=True,
         )
 
         dest_method.requests.append(
             {
-                "content_type" : cls.CONTENT_TYPE,
-                "query_items" : cls.GetGetQueryItems(),
+                "content_type" : self.CONTENT_TYPE,
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Get),
+                "query_items" : self.GetGetQueryItems(),
             },
         )
 
-        if cls.GetReferenceElement(
+        if self.GetReferenceElement(
             source_endpoint,
             is_reference=True,
         ).TypeInfo.Arity.IsOptional:
@@ -939,9 +1019,9 @@ class _ReferenceItemProcessor(_HttpProcessor):
         else:
             arity = ""
 
-        cls.GetOrCreateResponseContents(dest_method, 200).append(
+        self.GetOrCreateResponseContents(dest_method, 200).append(
             {
-                "content_type" : cls.CONTENT_TYPE,
+                "content_type" : self.CONTENT_TYPE,
                 "body" : {
                     "simple_schema" : textwrap.dedent(
                         """\
@@ -962,20 +1042,20 @@ class _ReferenceItemProcessor(_HttpProcessor):
             },
         )
 
-        cls.CreateResponses(dest_method, 400, 401, 404)
+        self.CreateResponses(self.Verbs.Get, dest_method, 400, 401, 404)
 
     # ----------------------------------------------------------------------
-    @classmethod
     @Interface.override
-    def OnPatch(cls, source_endpoint, dest_endpoint, dest_method):
-        reference_type = cls.ExtractRelationshipNameFromMetadataName(
+    def OnPatch(self, source_endpoint, dest_endpoint, dest_method):
+        reference_type = self.ExtractRelationshipNameFromMetadataName(
             source_endpoint,
             is_reference=True,
         )
 
         dest_method.requests.append(
             {
-                "content_type" : cls.CONTENT_TYPE,
+                "content_type" : self.CONTENT_TYPE,
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Patch),
                 "body" : {
                     "simple_schema" : textwrap.dedent(
                         """\
@@ -987,9 +1067,9 @@ class _ReferenceItemProcessor(_HttpProcessor):
             },
         )
 
-        cls.GetOrCreateResponseContents(dest_method, 200).append(
+        self.GetOrCreateResponseContents(dest_method, 200).append(
             {
-                "content_type" : cls.CONTENT_TYPE,
+                "content_type" : self.CONTENT_TYPE,
                 "body" : {
                     "simple_schema" : textwrap.dedent(
                         """\
@@ -1007,17 +1087,22 @@ class _ReferenceItemProcessor(_HttpProcessor):
             },
         )
 
-        cls.CreateResponses(dest_method, 400, 401, 404)
+        self.CreateResponses(self.Verbs.Patch, dest_method, 400, 401, 404)
 
     # ----------------------------------------------------------------------
-    @classmethod
     @Interface.override
-    def OnDelete(cls, source_endpoint, dest_endpoint, dest_method):
-        cls.CreateResponses(dest_method, 204, 401, 404)
+    def OnDelete(self, source_endpoint, dest_endpoint, dest_method):
+        dest_method.requests.append(
+            {
+                "content_type" : self.CONTENT_TYPE,
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Delete),
+            },
+        )
+
+        self.CreateResponses(self.Verbs.Delete, dest_method, 204, 401, 404)
 
 
 # ----------------------------------------------------------------------
-@Interface.staticderived
 class _BackrefCollectionProcessor(_HttpProcessor):
     # ----------------------------------------------------------------------
     @staticmethod
@@ -1026,24 +1111,24 @@ class _BackrefCollectionProcessor(_HttpProcessor):
         raise Exception("This should never be called")
 
     # ----------------------------------------------------------------------
-    @classmethod
     @Interface.override
-    def OnGet(cls, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
-        reference_type = cls.ExtractRelationshipNameFromMetadataName(
+    def OnGet(self, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
+        reference_type = self.ExtractRelationshipNameFromMetadataName(
             source_endpoint,
             is_reference=False,
         )
 
         dest_method.requests.append(
             {
-                "content_type" : cls.CONTENT_TYPE,
-                "query_items" : cls.PruneBackrefQueryItems(
-                    cls.GetGetItemsQueryItems(source_endpoint, no_pagination, no_sort)
+                "content_type" : self.CONTENT_TYPE,
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Get),
+                "query_items" : self.PruneBackrefQueryItems(
+                    self.GetGetItemsQueryItems(source_endpoint, no_pagination, no_sort)
                 ),
             },
         )
 
-        if cls.GetReferenceElement(
+        if self.GetReferenceElement(
             source_endpoint,
             is_reference=False,
         ).TypeInfo.Arity.Min == 0:
@@ -1051,9 +1136,9 @@ class _BackrefCollectionProcessor(_HttpProcessor):
         else:
             arity = "+"
 
-        cls.GetOrCreateResponseContents(dest_method, 200).append(
+        self.GetOrCreateResponseContents(dest_method, 200).append(
             {
-                "content_type" : cls.CONTENT_TYPE,
+                "content_type" : self.CONTENT_TYPE,
                 "body" : {
                     "simple_schema" : textwrap.dedent(
                         """\
@@ -1078,7 +1163,7 @@ class _BackrefCollectionProcessor(_HttpProcessor):
             },
         )
 
-        cls.CreateResponses(dest_method, 400, 401)
+        self.CreateResponses(self.Verbs.Get, dest_method, 400, 401)
 
     # ----------------------------------------------------------------------
     @staticmethod
@@ -1094,7 +1179,6 @@ class _BackrefCollectionProcessor(_HttpProcessor):
 
 
 # ----------------------------------------------------------------------
-@Interface.staticderived
 class _BackrefCollectionItemProcessor(_HttpProcessor):
     # ----------------------------------------------------------------------
     @staticmethod
@@ -1103,10 +1187,9 @@ class _BackrefCollectionItemProcessor(_HttpProcessor):
         raise Exception("This should never be called")
 
     # ----------------------------------------------------------------------
-    @classmethod
     @Interface.override
-    def OnGet(cls, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
-        reference_type = cls.ExtractRelationshipNameFromMetadataName(
+    def OnGet(self, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
+        reference_type = self.ExtractRelationshipNameFromMetadataName(
             source_endpoint,
             is_reference=False,
             uri_component_offset=1,
@@ -1114,16 +1197,17 @@ class _BackrefCollectionItemProcessor(_HttpProcessor):
 
         dest_method.requests.append(
             {
-                "content_type" : cls.CONTENT_TYPE,
-                "query_items" : cls.PruneBackrefQueryItems(
-                    cls.GetGetQueryItems(),
+                "content_type" : self.CONTENT_TYPE,
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Get),
+                "query_items" : self.PruneBackrefQueryItems(
+                    self.GetGetQueryItems(),
                 ),
             },
         )
 
-        cls.GetOrCreateResponseContents(dest_method, 200).append(
+        self.GetOrCreateResponseContents(dest_method, 200).append(
             {
-                "content_type" : cls.CONTENT_TYPE,
+                "content_type" : self.CONTENT_TYPE,
                 "body" : {
                     "simple_schema" : textwrap.dedent(
                         """\
@@ -1143,7 +1227,7 @@ class _BackrefCollectionItemProcessor(_HttpProcessor):
             },
         )
 
-        cls.CreateResponses(dest_method, 400, 401, 404)
+        self.CreateResponses(self.Verbs.Get, dest_method, 400, 401, 404)
 
     # ----------------------------------------------------------------------
     @staticmethod
@@ -1159,7 +1243,6 @@ class _BackrefCollectionItemProcessor(_HttpProcessor):
 
 
 # ----------------------------------------------------------------------
-@Interface.staticderived
 class _BackrefItemProcessor(_HttpProcessor):
     # ----------------------------------------------------------------------
     @staticmethod
@@ -1168,24 +1251,24 @@ class _BackrefItemProcessor(_HttpProcessor):
         raise Exception("This should never be called")
 
     # ----------------------------------------------------------------------
-    @classmethod
     @Interface.override
-    def OnGet(cls, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
-        reference_type = cls.ExtractRelationshipNameFromMetadataName(
+    def OnGet(self, source_endpoint, dest_endpoint, dest_method, no_pagination, no_sort):
+        reference_type = self.ExtractRelationshipNameFromMetadataName(
             source_endpoint,
             is_reference=False,
         )
 
         dest_method.requests.append(
             {
-                "content_type" : cls.CONTENT_TYPE,
-                "query_items" : cls.PruneBackrefQueryItems(
-                    cls.GetGetQueryItems(),
+                "content_type" : self.CONTENT_TYPE,
+                "headers" : self.GetStandardHeaderItems(self.Verbs.Get),
+                "query_items" : self.PruneBackrefQueryItems(
+                    self.GetGetQueryItems(),
                 ),
             },
         )
 
-        if cls.GetReferenceElement(
+        if self.GetReferenceElement(
             source_endpoint,
             is_reference=False,
         ).TypeInfo.Arity.IsOptional:
@@ -1193,9 +1276,9 @@ class _BackrefItemProcessor(_HttpProcessor):
         else:
             arity = ""
 
-        cls.GetOrCreateResponseContents(dest_method, 200).append(
+        self.GetOrCreateResponseContents(dest_method, 200).append(
             {
-                "content_type" : cls.CONTENT_TYPE,
+                "content_type" : self.CONTENT_TYPE,
                 "body" : {
                     "simple_schema" : textwrap.dedent(
                         """\
@@ -1216,7 +1299,7 @@ class _BackrefItemProcessor(_HttpProcessor):
             },
         )
 
-        cls.CreateResponses(dest_method, 400, 401, 404)
+        self.CreateResponses(self.Verbs.Get, dest_method, 400, 401, 404)
 
 
     # ----------------------------------------------------------------------

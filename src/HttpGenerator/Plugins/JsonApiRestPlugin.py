@@ -101,6 +101,7 @@ class Plugin(RestPluginImpl):
                 (Fidelity enum values=[id, identities, items, full] default=full ?)
                 (RefFidelity enum values=[none, id, identities, items, full, complete] default=identities ?)
                 (BackrefFidelity enum values=[none, id, identities, items, full] default=id ?)
+
                 (ReferenceRelationshipType enum values=[reference] ?)
                 (BackrefRelationshipType enum values=[backref] ?)
 
@@ -112,16 +113,25 @@ class Plugin(RestPluginImpl):
                 var="[a-zA-Z0-9_]+",
             )
 
+        # Create the map with classes
         endpoint_processor_map = {
-            RestPluginImpl.EndpointType.Collection : _CollectionProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
-            RestPluginImpl.EndpointType.CollectionItem : _CollectionItemProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
-            RestPluginImpl.EndpointType.ReferenceCollection : _ReferenceCollectionProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
-            RestPluginImpl.EndpointType.ReferenceCollectionItem : _ReferenceCollectionItemProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
-            RestPluginImpl.EndpointType.ReferenceItem : _ReferenceItemProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
-            RestPluginImpl.EndpointType.BackrefCollection : _BackrefCollectionProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
-            RestPluginImpl.EndpointType.BackrefCollectionItem : _BackrefCollectionItemProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
-            RestPluginImpl.EndpointType.BackrefItem : _BackrefItemProcessor(authentication_scheme, if_unmodified_since_header_verbs, if_unmodified_since_header_is_optional),
+            RestPluginImpl.EndpointType.Collection : _CollectionProcessor,
+            RestPluginImpl.EndpointType.CollectionItem : _CollectionItemProcessor,
+            RestPluginImpl.EndpointType.ReferenceCollection : _ReferenceCollectionProcessor,
+            RestPluginImpl.EndpointType.ReferenceCollectionItem : _ReferenceCollectionItemProcessor,
+            RestPluginImpl.EndpointType.ReferenceItem : _ReferenceItemProcessor,
+            RestPluginImpl.EndpointType.BackrefCollection : _BackrefCollectionProcessor,
+            RestPluginImpl.EndpointType.BackrefCollectionItem : _BackrefCollectionItemProcessor,
+            RestPluginImpl.EndpointType.BackrefItem : _BackrefItemProcessor,
         }
+
+        # Instantiate the classes in the map
+        for k, v in six.iteritems(endpoint_processor_map):
+            endpoint_processor_map[k] = v(
+                authentication_scheme,
+                if_unmodified_since_header_verbs,
+                if_unmodified_since_header_is_optional,
+            )
 
         # ----------------------------------------------------------------------
         def Impl(source_endpoint, dest_endpoint):

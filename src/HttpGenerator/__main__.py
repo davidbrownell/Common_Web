@@ -1,6 +1,6 @@
 # ----------------------------------------------------------------------
 # |
-# |  HttpGenerator.py
+# |  __main__.py
 # |
 # |  David Brownell <db@DavidBrownell.com>
 # |      2020-07-16 17:02:19
@@ -18,10 +18,10 @@
 import importlib
 import itertools
 import os
-import pickle
 import re
 import sys
 import textwrap
+import yaml
 
 from collections import namedtuple, OrderedDict
 
@@ -463,9 +463,8 @@ def __CreateContext(context, plugin):
     # However, the context will be compared with previous context to see if
     # a new generation is required. To make this work as expected, we need to
     # compare the data within the endpoints and not the endpoints themselves.
-    # Pickle the data, and then unpickle it if it turns out that a new
-    # generation is necessary.
-    context["pickled_roots"] = pickle.dumps(roots)
+
+    context["persisted_roots"] = yaml.dump(roots)
 
     return context
 
@@ -480,7 +479,10 @@ def __Invoke(
     verbose,
     plugin,
 ):
-    roots = pickle.loads(context["pickled_roots"])
+    roots = yaml.load(
+        context["persisted_roots"],
+        Loader=yaml.FullLoader,
+    )
 
     # ----------------------------------------------------------------------
     def Postprocess(endpoint, uris):

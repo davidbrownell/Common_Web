@@ -55,6 +55,16 @@ def GetCustomActions(
     actions = []
 
     if configuration == "SimpleSchema":
+        for repository in repositories:
+            if repository.Id == "5C7E1B3369B74BC098141FAD290288DA":
+                actions.append(
+                    CurrentShell.Commands.Set(
+                        "DEVELOPMENT_ENVIRONMENT_SIMPLE_SCHEMA_ROOT_DIR",
+                        repository.Root,
+                    ),
+                )
+                break
+
         actions += DynamicPluginArchitecture.CreateRegistrationStatements(
             "DEVELOPMENT_ENVIRONMENT_SIMPLE_SCHEMA_PLUGINS",
             os.path.join(_script_dir, "Scripts", "SimpleSchemaGenerator"),

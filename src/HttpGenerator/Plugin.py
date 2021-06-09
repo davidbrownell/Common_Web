@@ -250,15 +250,19 @@ class Plugin(PluginBase):
     # ----------------------------------------------------------------------
     @staticmethod
     def _CompilePickledSimpleSchemaContent(temp_dir, simple_schema_filename, output_stream, verbose):
-        return Process.Execute(
+        result, output = Process.Execute(
             '"{script}" Generate Pickle http_schema "{output_dir}" "/input={input_filename}" "/output_data_filename_prefix=Pickle"{verbose}'.format(
                 script=CurrentShell.CreateScriptName("SimpleSchemaGenerator"),
                 output_dir=temp_dir,
                 input_filename=simple_schema_filename,
                 verbose=" /verbose" if verbose else "",
             ),
-            output_stream,
         )
+
+        if verbose:
+            output_stream.write(output)
+
+        return result
 
     # ----------------------------------------------------------------------
     @staticmethod
